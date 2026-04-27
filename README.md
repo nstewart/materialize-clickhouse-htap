@@ -1,4 +1,5 @@
 # Agentic HTAP Reference Architecture
+
 ### OLTP · IVM · OLAP
 
 This repo defines the **Agentic HTAP pattern**: route OLTP writes, operational reads, and analytical reads to the engine built for each.
@@ -36,57 +37,23 @@ make demo              # watch a price change propagate end-to-end
 
 *This repo uses a single Postgres instance to keep the demo focused — the pattern extends to any number of OLTP sources.*
 
-## Run it
-
-### Local (Docker)
-
-```bash
-make up && make init   # start all 5 services, apply schema, seed data (~60 seconds)
-make demo              # watch a price change propagate end-to-end
-```
-
-`make demo` inserts a price change into Postgres and prints the propagation latency at each hop.
-
-```bash
-make load    # seed 1M orders (requires init)
-make bench   # run latency comparison across all three systems
-make test    # full test suite
-```
-
-### AWS (ephemeral EC2)
-
-Runs the full stack on a single `m5.2xlarge` EC2 instance. The instance is created on demand and deleted when you're done — no lingering costs.
-
-**Prerequisites:** AWS CLI configured (`aws configure`) with EC2 permissions.
-
-```bash
-make aws-debug   # verify credentials and permissions before spending anything
-make aws-up      # provision EC2, sync files, start all 5 Docker services (~3 min)
-make aws-init    # initialize Materialize pipeline
-make aws-load    # seed 1M orders
-make aws-bench   # run benchmark — output streams to your terminal
-make aws-demo    # run live demo — output streams to your terminal
-make aws-down    # terminate instance, delete all AWS resources
-```
-
-All state (instance ID, key, IP) is stored in `.state/` which is git-ignored. To use a different instance type: `INSTANCE_TYPE=m5.4xlarge make aws-up`.
-
 ## The Three Requirements
 
 A HTAP system needs three things working together:
 
-| Requirement | Role | Access pattern |
-|---|---|---|
-| **OLTP — Writes** | Durable, consistent writes at scale | Normalized schema, ACID transactions, point writes |
+
+| Requirement                       | Role                                                                   | Access pattern                                                                          |
+| --------------------------------- | ---------------------------------------------------------------------- | --------------------------------------------------------------------------------------- |
+| **OLTP — Writes**                 | Durable, consistent writes at scale                                    | Normalized schema, ACID transactions, point writes                                      |
 | **IVM — Real-time data products** | Continually and incrementally computed, indexed views of current state | Known access patterns, current entity state, ~1 second freshness; < 10 ms point lookups |
-| **OLAP — Analytical reads** | Full-dataset scans with arbitrary aggregation shapes | Ad-hoc queries over denormalized flat tables |
+| **OLAP — Analytical reads**       | Full-dataset scans with arbitrary aggregation shapes                   | Ad-hoc queries over denormalized flat tables                                            |
+
 
 These requirements conflict. OLTP writes often target normalized schemas: one fact in one row, referential integrity, transactional consistency. Operational reads require incrementally maintained, indexed results: at scale, ranking one customer among 100K others requires aggregating every row, and no index eliminates that scan. Analytical reads need a denormalized flat table: OLAP engines read individual columns across millions of rows, and JOIN resolution at query time defeats the columnar advantage.
 
 **Why not batch ETL or Flink?** Batch ETL solves analytical reads but not operational reads — the latency is too high, and join logic outside the database becomes fragile as schemas evolve. Stream processors like Flink reduce latency but shift complexity into application code: reconstructing transactions, maintaining joins, and building a separate serving layer on top.
 
 **IVM is the bridge.** An IVM engine reads from OLTP databases via CDC, joins and aggregates incrementally as writes arrive, serves operational reads from in-memory indexes, and continuously feeds a pre-joined flat table to the OLAP engine — all from the same consistent computation. In microservice architectures where each service owns its own database, the IVM layer joins across all of them at a unified logical timestamp, without synchronous cross-service calls or duplicated business logic.
-
 
 ## When to Use This Pattern
 
@@ -103,7 +70,6 @@ AI agents and LLM pipelines need accurate, current context about the state of th
 ### Interactive, data-intensive UIs
 
 Dashboards and UIs that surface per-entity operational state alongside population-level context — a customer's orders alongside their spend rank among all customers, a product's inventory alongside its sales rank within its category — need the data pre-joined and pre-ranked before the request arrives. Materialize maintains this continuously. The UI reads directly from indexed views and returns in milliseconds even as the dataset grows to millions of entities.
-
 
 ### When Postgres + Debezium + ClickHouse is the right choice instead
 
@@ -126,23 +92,27 @@ Traditional stacks force a tradeoff: serve entity context from a cache (stale) o
 
 ### The pattern
 
-| Role | Solution |
-|---|---|
-| OLTP — transactional writes | One or more relational databases (Postgres, MySQL, etc.) |
-| IVM — CDC, incremental views, operational serving | IVM engine |
-| OLAP — ad-hoc analytical reads | Columnar OLAP engine |
+
+| Role                                              | Solution                                                 |
+| ------------------------------------------------- | -------------------------------------------------------- |
+| OLTP — transactional writes                       | One or more relational databases (Postgres, MySQL, etc.) |
+| IVM — CDC, incremental views, operational serving | IVM engine                                               |
+| OLAP — ad-hoc analytical reads                    | Columnar OLAP engine                                     |
+
 
 The IVM engine can push directly to the OLAP engine or via an intermediate event bus depending on the implementation. In this stack, Materialize sinks to ClickHouse via Redpanda (a Kafka-compatible broker), which decouples the two systems and allows ClickHouse to consume at its own pace.
 
 ### This implementation
 
-| Component | Role |
-|---|---|
-| **Postgres** | OLTP — transactional writes, referential integrity, source of truth |
+
+| Component       | Role                                                                                                                                                |
+| --------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Postgres**    | OLTP — transactional writes, referential integrity, source of truth                                                                                 |
 | **Materialize** | IVM — CDC from Postgres, incremental denormalization at consistent timestamps, operational serving via in-memory indexes, analytical sink via Kafka |
-| **Redpanda** | Kafka-compatible broker — event transport between Materialize and ClickHouse, and between Debezium and ClickHouse |
-| **ClickHouse** | OLAP — ad-hoc analytical queries over the pre-joined flat table; also receives Debezium CDC directly for the standalone path |
-| **Debezium** | CDC connector — reads Postgres WAL and publishes row-level changes to Redpanda topics for the ClickHouse standalone path |
+| **Redpanda**    | Kafka-compatible broker — event transport between Materialize and ClickHouse, and between Debezium and ClickHouse                                   |
+| **ClickHouse**  | OLAP — ad-hoc analytical queries over the pre-joined flat table; also receives Debezium CDC directly for the standalone path                        |
+| **Debezium**    | CDC connector — reads Postgres WAL and publishes row-level changes to Redpanda topics for the ClickHouse standalone path                            |
+
 
 #### On Correctness
 
@@ -166,26 +136,31 @@ Raw change events entering Materialize via CDC. In this implementation a single 
 
 Postgres logical replication emits changes at transaction granularity: all row mutations within a single Postgres transaction arrive together and are assigned the same logical timestamp. This is the foundation of end-to-end consistency — a transaction that touches `orders`, `order_items`, and `inventory` in one commit is never partially visible in any downstream derived object. This layer mirrors source tables into Materialize with no transformation or aggregation. Runs on `source_cluster` so ingestion throughput scales independently from compute.
 
-| Object | Description |
-|---|---|
+
+| Object          | Description                         |
+| --------------- | ----------------------------------- |
 | `retail_source` | Postgres logical replication source |
-| `customers` | Mirrored from Postgres |
-| `products` | Mirrored from Postgres |
-| `orders` | Mirrored from Postgres |
-| `order_items` | Mirrored from Postgres |
-| `inventory` | Mirrored from Postgres |
+| `customers`     | Mirrored from Postgres              |
+| `products`      | Mirrored from Postgres              |
+| `orders`        | Mirrored from Postgres              |
+| `order_items`   | Mirrored from Postgres              |
+| `inventory`     | Mirrored from Postgres              |
+
 
 ### Layer 2 — Real-Time Data Products
+
 *The core business entities of the domain, maintained incrementally.*
 
 Reusable materialized views that stay current as Postgres changes. These are the stable data products that multiple consumers share — both the operational path and the ClickHouse sink read from here. Layer 3 is kept thin because Layer 2 does the expensive join and aggregation work once, continuously, as data arrives. All views in this layer execute against the same consistent logical timestamp: a join between `orders` and `order_items` cannot see rows from different transactions, and a `RANK()` over `lifetime_spend` reflects the same set of committed writes as the spend values it ranks.
 
-| Data Product | Description |
-|---|---|
-| `customer_profile` | Customer lifetime spend, order count, computed tier, and spend rank (RANK over all customers — maintained incrementally) |
-| `product_catalog` | Product with current price, category, and margin |
-| `order_detail` | Fully denormalized: line items + products + customer in a single flat row — the source for the Kafka sink |
-| `inventory_position` | Current stock per product per warehouse with stock-to-sales ratio |
+
+| Data Product         | Description                                                                                                              |
+| -------------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| `customer_profile`   | Customer lifetime spend, order count, computed tier, and spend rank (RANK over all customers — maintained incrementally) |
+| `product_catalog`    | Product with current price, category, and margin                                                                         |
+| `order_detail`       | Fully denormalized: line items + products + customer in a single flat row — the source for the Kafka sink                |
+| `inventory_position` | Current stock per product per warehouse with stock-to-sales ratio                                                        |
+
 
 ### Layer 3 — Serving
 
@@ -195,11 +170,13 @@ Layer 3 has two outputs from the same underlying computation.
 
 Thin views with indexes. The index is what makes the difference: Materialize has already maintained the join and aggregation; the index makes the lookup O(1) at query time. For reactive applications, `SUBSCRIBE` streams each change the moment it's committed — eliminating polling latency entirely. The demo uses this for the Materialize step.
 
-| Serving Product | Index | Latency | Use Case |
-|---|---|---|---|
+
+| Serving Product           | Index         | Latency | Use Case                                                       |
+| ------------------------- | ------------- | ------- | -------------------------------------------------------------- |
 | `customer_order_activity` | `customer_id` | < 10 ms | Customer orders with full profile context including spend rank |
-| `inventory_position` | `sku` | < 10 ms | Inventory lookup by SKU |
-| `product_performance` | `sku` | < 15 ms | Sales rank and buyer loyalty by SKU |
+| `inventory_position`      | `sku`         | < 10 ms | Inventory lookup by SKU                                        |
+| `product_performance`     | `sku`         | < 15 ms | Sales rank and buyer loyalty by SKU                            |
+
 
 **Analytical path — sent to ClickHouse via Kafka:**
 
@@ -207,18 +184,22 @@ Two categories of sink serve different query families:
 
 **Ad-hoc sinks** — pre-joined flat tables that preserve full row detail. ClickHouse can aggregate freely at query time, so these suit exploratory or unpredictable query shapes:
 
-| Object | Kafka Topic | ClickHouse Table | Query family |
-|---|---|---|---|
-| `order_detail` | `orders-enriched` | `orders_enriched` (ReplacingMergeTree) | Item-level detail; flexible aggregation (cohort retention, funnel analysis) |
-| `order_summary` | `orders-summary` | `orders_summary` (ReplacingMergeTree) | Order-level detail; flexible temporal queries |
-| `inventory_position` | `inventory-snapshots` | `inventory_snapshots` (ReplacingMergeTree) | Inventory replenishment |
+
+| Object               | Kafka Topic           | ClickHouse Table                           | Query family                                                                |
+| -------------------- | --------------------- | ------------------------------------------ | --------------------------------------------------------------------------- |
+| `order_detail`       | `orders-enriched`     | `orders_enriched` (ReplacingMergeTree)     | Item-level detail; flexible aggregation (cohort retention, funnel analysis) |
+| `order_summary`      | `orders-summary`      | `orders_summary` (ReplacingMergeTree)      | Order-level detail; flexible temporal queries                               |
+| `inventory_position` | `inventory-snapshots` | `inventory_snapshots` (ReplacingMergeTree) | Inventory replenishment                                                     |
+
 
 **Pre-aggregated sinks** — Materialize IVM maintains the aggregation continuously; ClickHouse reads a small pre-bucketed result with no scan, no filter, no GROUP BY at query time. Use these when the query shape is fixed:
 
-| Object | Kafka Topic | ClickHouse Table | Query family |
-|---|---|---|---|
-| `sales_by_dim` MV | `sales-by-dim` | `mz_sales_by_dim` (ReplacingMergeTree) | Revenue by category × customer tier × day-of-week (~203 rows) |
-| `revenue_histogram` MV | `revenue-histogram` | `mz_revenue_histogram` (ReplacingMergeTree) | $50-bucket histogram, trailing 90-day window (~50 rows) |
+
+| Object                 | Kafka Topic         | ClickHouse Table                            | Query family                                                  |
+| ---------------------- | ------------------- | ------------------------------------------- | ------------------------------------------------------------- |
+| `sales_by_dim` MV      | `sales-by-dim`      | `mz_sales_by_dim` (ReplacingMergeTree)      | Revenue by category × customer tier × day-of-week (~203 rows) |
+| `revenue_histogram` MV | `revenue-histogram` | `mz_revenue_histogram` (ReplacingMergeTree) | $50-bucket histogram, trailing 90-day window (~50 rows)       |
+
 
 ### Cluster Topology
 
@@ -263,21 +244,25 @@ Analytical — Revenue histogram ($50 buckets, 90 d)
 
 **Operational — Customer orders + spend rank**
 
-| System | Freshness lag | Avg batch wait | Response | Total reaction time |
-|---|---|---|---|---|
-| Postgres | 0 ms | — | 1.89 s | **1.89 s** |
-| Materialize | 288 ms | — | 5.9 ms | **294 ms** |
-| ClickHouse (via Materialize) | 3.59 s | — | 1.04 s | **4.64 s** |
-| ClickHouse (standalone) | 3.60 s | 500 ms | 168.7 ms | **4.27 s** |
+
+| System                       | Freshness lag | Avg batch wait | Response | Total reaction time |
+| ---------------------------- | ------------- | -------------- | -------- | ------------------- |
+| Postgres                     | 0 ms          | —              | 1.89 s   | **1.89 s**          |
+| Materialize                  | 288 ms        | —              | 5.9 ms   | **294 ms**          |
+| ClickHouse (via Materialize) | 3.59 s        | —              | 1.04 s   | **4.64 s**          |
+| ClickHouse (standalone)      | 3.60 s        | 500 ms         | 168.7 ms | **4.27 s**          |
+
 
 **Analytical — Revenue histogram ($50 buckets, 90 d)**
 
-| System | Freshness lag | Avg batch wait | Response | Total reaction time |
-|---|---|---|---|---|
-| Postgres | 0 ms | — | 570.4 ms | **570.4 ms** |
-| Materialize | 288 ms | — | 2.77 s | **3.05 s** |
-| ClickHouse (via Materialize) | 3.59 s | — | 6.2 ms | **3.60 s** |
-| ClickHouse (standalone) | 3.60 s | 15 s | 14.6 ms | **18.6 s** |
+
+| System                       | Freshness lag | Avg batch wait | Response | Total reaction time |
+| ---------------------------- | ------------- | -------------- | -------- | ------------------- |
+| Postgres                     | 0 ms          | —              | 570.4 ms | **570.4 ms**        |
+| Materialize                  | 288 ms        | —              | 2.77 s   | **3.05 s**          |
+| ClickHouse (via Materialize) | 3.59 s        | —              | 6.2 ms   | **3.60 s**          |
+| ClickHouse (standalone)      | 3.60 s        | 15 s           | 14.6 ms  | **18.6 s**          |
+
 
 The chart is not a ranking — each system reflects a deliberate design tradeoff:
 
@@ -295,11 +280,13 @@ make bench  # run comparison (accepts --runs N)
 
 Known access patterns benchmarked across four systems. ClickHouse (via Materialize) reads from Materialize-enriched, pre-joined denormalized tables. ClickHouse (standalone) uses Debezium CDC directly into ClickHouse-native tables with ORDER BY layouts tuned per query, projections, AggregatingMergeTree for incremental aggregation, and refreshable MVs for pre-computed rankings.
 
-| Query | Postgres | Materialize | CH via Materialize | CH standalone |
-|---|---|---|---|---|
-| Inventory lookup (by SKU) | 262 ms | **4.7 ms ✓** | 6.6 ms | 7.0 ms |
-| Customer orders + lifetime metrics | 1.89 s | **5.9 ms ✓** | 1.04 s | 168.7 ms |
-| Product performance (by SKU) | 6.15 s | **3.0 ms ✓** | 2.33 s | 16.7 ms |
+
+| Query                              | Postgres | Materialize  | CH via Materialize | CH standalone |
+| ---------------------------------- | -------- | ------------ | ------------------ | ------------- |
+| Inventory lookup (by SKU)          | 262 ms   | **4.7 ms ✓** | 6.6 ms             | 7.0 ms        |
+| Customer orders + lifetime metrics | 1.89 s   | **5.9 ms ✓** | 1.04 s             | 168.7 ms      |
+| Product performance (by SKU)       | 6.15 s   | **3.0 ms ✓** | 2.33 s             | 16.7 ms       |
+
 
 **Inventory lookup (by SKU)**
 
@@ -312,12 +299,14 @@ Known access patterns benchmarked across four systems. ClickHouse (via Materiali
                                 1ms         10ms        100ms       1s
 ```
 
-| System | Freshness lag | Avg batch wait | Response | Total reaction time |
-|---|---|---|---|---|
-| Postgres | 0 ms | — | 262.1 ms | **262.1 ms** |
-| Materialize | 288 ms | — | 4.7 ms | **292.8 ms** |
-| ClickHouse (via Materialize) | 3.59 s | — | 6.6 ms | **3.60 s** |
-| ClickHouse (standalone) | 3.60 s | — | 7.0 ms | **3.61 s** |
+
+| System                       | Freshness lag | Avg batch wait | Response | Total reaction time |
+| ---------------------------- | ------------- | -------------- | -------- | ------------------- |
+| Postgres                     | 0 ms          | —              | 262.1 ms | **262.1 ms**        |
+| Materialize                  | 288 ms        | —              | 4.7 ms   | **292.8 ms**        |
+| ClickHouse (via Materialize) | 3.59 s        | —              | 6.6 ms   | **3.60 s**          |
+| ClickHouse (standalone)      | 3.60 s        | —              | 7.0 ms   | **3.61 s**          |
+
 
 **Customer orders + lifetime metrics**
 
@@ -330,12 +319,14 @@ Known access patterns benchmarked across four systems. ClickHouse (via Materiali
                                 1ms         10ms        100ms       1s
 ```
 
-| System | Freshness lag | Avg batch wait | Response | Total reaction time |
-|---|---|---|---|---|
-| Postgres | 0 ms | — | 1.89 s | **1.89 s** |
-| Materialize | 288 ms | — | 5.9 ms | **294 ms** |
-| ClickHouse (via Materialize) | 3.59 s | — | 1.04 s | **4.64 s** |
-| ClickHouse (standalone) | 3.60 s | 500 ms | 168.7 ms | **4.27 s** |
+
+| System                       | Freshness lag | Avg batch wait | Response | Total reaction time |
+| ---------------------------- | ------------- | -------------- | -------- | ------------------- |
+| Postgres                     | 0 ms          | —              | 1.89 s   | **1.89 s**          |
+| Materialize                  | 288 ms        | —              | 5.9 ms   | **294 ms**          |
+| ClickHouse (via Materialize) | 3.59 s        | —              | 1.04 s   | **4.64 s**          |
+| ClickHouse (standalone)      | 3.60 s        | 500 ms         | 168.7 ms | **4.27 s**          |
+
 
 **Product performance (by SKU)**
 
@@ -348,12 +339,14 @@ Known access patterns benchmarked across four systems. ClickHouse (via Materiali
                                 1ms         10ms        100ms       1s
 ```
 
-| System | Freshness lag | Avg batch wait | Response | Total reaction time |
-|---|---|---|---|---|
-| Postgres | 0 ms | — | 6.15 s | **6.15 s** |
-| Materialize | 288 ms | — | 3.0 ms | **291 ms** |
-| ClickHouse (via Materialize) | 3.59 s | — | 2.33 s | **5.93 s** |
-| ClickHouse (standalone) | 3.60 s | 2.50 s | 16.7 ms | **6.12 s** |
+
+| System                       | Freshness lag | Avg batch wait | Response | Total reaction time |
+| ---------------------------- | ------------- | -------------- | -------- | ------------------- |
+| Postgres                     | 0 ms          | —              | 6.15 s   | **6.15 s**          |
+| Materialize                  | 288 ms        | —              | 3.0 ms   | **291 ms**          |
+| ClickHouse (via Materialize) | 3.59 s        | —              | 2.33 s   | **5.93 s**          |
+| ClickHouse (standalone)      | 3.60 s        | 2.50 s         | 16.7 ms  | **6.12 s**          |
+
 
 **Why Postgres is slow:** the customer orders query must rank one customer by lifetime spend among all 100K customers. That requires aggregating all 2.8M order items at query time regardless of how many orders that customer has — there is no index that avoids the full scan. Product performance has the same structural problem: ranking one SKU by revenue requires reading every order item. These are not indexing failures; they are structurally unavoidable in a system that computes on read.
 
@@ -375,11 +368,13 @@ ClickHouse (via Materialize) uses pre-aggregated sinks for the cross-dimensional
 
 Response time alone does not determine which system delivers results soonest after a write. Every ClickHouse path carries a ~3.6 s freshness lag before the query executes; Materialize reflects writes in ~288 ms. **Reaction time — freshness lag + response — is the decisive comparison for data-currency-sensitive applications.** The chart below integrates both.
 
-| Query | Postgres | Materialize | ClickHouse (via Materialize) | ClickHouse (standalone) |
-|---|---|---|---|---|
-| Revenue histogram ($50 buckets, 90 d) | 570.4 ms | 2.77 s | 6.2 ms (pre-aggregated) | 14.6 ms |
-| Revenue by category × tier × day-of-week | 4.93 s | 4.04 s | 8.5 ms (pre-aggregated) | 5.4 ms |
-| Cohort retention (30/60/90 d) | 1.54 s | 8.31 s | 424.3 ms (flat table) | 143.5 ms |
+
+| Query                                    | Postgres | Materialize | ClickHouse (via Materialize) | ClickHouse (standalone) |
+| ---------------------------------------- | -------- | ----------- | ---------------------------- | ----------------------- |
+| Revenue histogram ($50 buckets, 90 d)    | 570.4 ms | 2.77 s      | 6.2 ms (pre-aggregated)      | 14.6 ms                 |
+| Revenue by category × tier × day-of-week | 4.93 s   | 4.04 s      | 8.5 ms (pre-aggregated)      | 5.4 ms                  |
+| Cohort retention (30/60/90 d)            | 1.54 s   | 8.31 s      | 424.3 ms (flat table)        | 143.5 ms                |
+
 
 *Columns show response time only. See the reaction-time chart for total latency including freshness lag.*
 
@@ -396,12 +391,14 @@ Response time alone does not determine which system delivers results soonest aft
                                 1ms        10ms       100ms     1s         10s
 ```
 
-| System | Freshness lag | Avg batch wait | Response | Total reaction time |
-|---|---|---|---|---|
-| Postgres | 0 ms | — | 570.4 ms | **570.4 ms** |
-| Materialize | 288 ms | — | 2.77 s | **3.05 s** |
-| ClickHouse (via Materialize) | 3.59 s | — | 6.2 ms | **3.60 s** |
-| ClickHouse (standalone) | 3.60 s | 15.00 s | 14.6 ms | **18.61 s** |
+
+| System                       | Freshness lag | Avg batch wait | Response | Total reaction time |
+| ---------------------------- | ------------- | -------------- | -------- | ------------------- |
+| Postgres                     | 0 ms          | —              | 570.4 ms | **570.4 ms**        |
+| Materialize                  | 288 ms        | —              | 2.77 s   | **3.05 s**          |
+| ClickHouse (via Materialize) | 3.59 s        | —              | 6.2 ms   | **3.60 s**          |
+| ClickHouse (standalone)      | 3.60 s        | 15.00 s        | 14.6 ms  | **18.61 s**         |
+
 
 **Revenue by category × tier × day-of-week**
 
@@ -414,12 +411,14 @@ Response time alone does not determine which system delivers results soonest aft
                                 1ms        10ms       100ms     1s         10s
 ```
 
-| System | Freshness lag | Avg batch wait | Response | Total reaction time |
-|---|---|---|---|---|
-| Postgres | 0 ms | — | 4.93 s | **4.93 s** |
-| Materialize | 288 ms | — | 4.04 s | **4.33 s** |
-| ClickHouse (via Materialize) | 3.59 s | — | 8.5 ms | **3.60 s** |
-| ClickHouse (standalone) | 3.60 s | 15.00 s | 5.4 ms | **18.60 s** |
+
+| System                       | Freshness lag | Avg batch wait | Response | Total reaction time |
+| ---------------------------- | ------------- | -------------- | -------- | ------------------- |
+| Postgres                     | 0 ms          | —              | 4.93 s   | **4.93 s**          |
+| Materialize                  | 288 ms        | —              | 4.04 s   | **4.33 s**          |
+| ClickHouse (via Materialize) | 3.59 s        | —              | 8.5 ms   | **3.60 s**          |
+| ClickHouse (standalone)      | 3.60 s        | 15.00 s        | 5.4 ms   | **18.60 s**         |
+
 
 **Cohort retention (30/60/90 d)**
 
@@ -432,12 +431,14 @@ Response time alone does not determine which system delivers results soonest aft
                                 1ms        10ms       100ms     1s         10s
 ```
 
-| System | Freshness lag | Avg batch wait | Response | Total reaction time |
-|---|---|---|---|---|
-| Postgres | 0 ms | — | 1.54 s | **1.54 s** |
-| Materialize | 288 ms | — | 8.31 s | **8.60 s** |
-| ClickHouse (via Materialize) | 3.59 s | — | 424.3 ms | **4.02 s** |
-| ClickHouse (standalone) | 3.60 s | 15.00 s | 143.5 ms | **18.74 s** |
+
+| System                       | Freshness lag | Avg batch wait | Response | Total reaction time |
+| ---------------------------- | ------------- | -------------- | -------- | ------------------- |
+| Postgres                     | 0 ms          | —              | 1.54 s   | **1.54 s**          |
+| Materialize                  | 288 ms        | —              | 8.31 s   | **8.60 s**          |
+| ClickHouse (via Materialize) | 3.59 s        | —              | 424.3 ms | **4.02 s**          |
+| ClickHouse (standalone)      | 3.60 s        | 15.00 s        | 143.5 ms | **18.74 s**         |
+
 
 **Two sink patterns, two tradeoffs — measured by reaction time:**
 
@@ -447,13 +448,15 @@ Response time alone does not determine which system delivers results soonest aft
 
 **Designing sinks for query families.** Each Materialize sink is maintained incrementally from the same CDC stream — the cost is paid once at write time, not per query per reader. The other side of that tradeoff: each pre-aggregated sink is a dataflow Materialize runs continuously, consuming hardware resources (CPU, memory, and disk) whether anyone reads from it or not. For the low-cardinality results here (~50 and ~203 rows) the footprint is negligible; for higher-cardinality groupings (say, per-customer-per-day) it becomes a real sizing consideration.
 
-| Query family | Materialize sink | Shape | ClickHouse standalone table |
-|---|---|---|---|
-| Revenue histogram | `revenue_histogram` MV → `mz_revenue_histogram` | **pre-aggregated** (~50 rows) | `opt_order_totals` — pre-totaled (30 s) |
-| Cross-dimensional (category × tier × dow) | `sales_by_dim` MV → `mz_sales_by_dim` | **pre-aggregated** (~203 rows) | `opt_sales_by_dim` — pre-aggregated (30 s) |
-| Temporal / cohort / funnel | `orders_summary` → `orders_summary` | flat (1M rows) | `opt_order_totals` — pre-totaled (30 s) |
-| Product performance | `inventory_snapshots` | flat | `product_category_rank` — pre-ranked (5 s) |
-| Customer rank | via `customer_order_activity` index | flat | `customer_rank` — pre-ranked (1 s) |
+
+| Query family                              | Materialize sink                                | Shape                          | ClickHouse standalone table                |
+| ----------------------------------------- | ----------------------------------------------- | ------------------------------ | ------------------------------------------ |
+| Revenue histogram                         | `revenue_histogram` MV → `mz_revenue_histogram` | **pre-aggregated** (~50 rows)  | `opt_order_totals` — pre-totaled (30 s)    |
+| Cross-dimensional (category × tier × dow) | `sales_by_dim` MV → `mz_sales_by_dim`           | **pre-aggregated** (~203 rows) | `opt_sales_by_dim` — pre-aggregated (30 s) |
+| Temporal / cohort / funnel                | `orders_summary` → `orders_summary`             | flat (1M rows)                 | `opt_order_totals` — pre-totaled (30 s)    |
+| Product performance                       | `inventory_snapshots`                           | flat                           | `product_category_rank` — pre-ranked (5 s) |
+| Customer rank                             | via `customer_order_activity` index             | flat                           | `customer_rank` — pre-ranked (1 s)         |
+
 
 **Why Materialize is slow for ad-hoc analytical queries:** without a purpose-built index or pre-aggregated MV for a specific aggregation shape, Materialize falls back to a full scan of its row-oriented store (memory and local disk). For fixed shapes, the pre-aggregated sinks demonstrate the fix — and because Materialize updates them continuously, they achieve better reaction time than the equivalent ClickHouse sink path (e.g., 3.05 s vs 3.60 s total for the histogram). For truly ad-hoc or unpredictable shapes, route to ClickHouse and accept the ~3.6 s sink delay as the price of flexible aggregation.
 
@@ -466,6 +469,41 @@ Response time alone does not determine which system delivers results soonest aft
 - **Secrets management**: use Materialize secrets (`CREATE SECRET`) instead of plaintext passwords
 - **ReplacingMergeTree + FINAL**: all ClickHouse analytical queries must use `FINAL` for correct deduplication after CDC upserts
 - **Tombstone handling**: Materialize upsert deletes produce Kafka tombstones; ClickHouse skips unparseable messages by default — verify this matches your delete semantics
+
+## Run it
+
+### Local (Docker)
+
+```bash
+make up && make init   # start all 5 services, apply schema, seed data (~60 seconds)
+make demo              # watch a price change propagate end-to-end
+```
+
+`make demo` inserts a price change into Postgres and prints the propagation latency at each hop.
+
+```bash
+make load    # seed 1M orders (requires init)
+make bench   # run latency comparison across all three systems
+make test    # full test suite
+```
+
+### AWS (ephemeral EC2)
+
+Runs the full stack on a single `m5.2xlarge` EC2 instance. The instance is created on demand and deleted when you're done — no lingering costs.
+
+**Prerequisites:** AWS CLI configured (`aws configure`) with EC2 permissions.
+
+```bash
+make aws-debug   # verify credentials and permissions before spending anything
+make aws-up      # provision EC2, sync files, start all 5 Docker services (~3 min)
+make aws-init    # initialize Materialize pipeline
+make aws-load    # seed 1M orders
+make aws-bench   # run benchmark — output streams to your terminal
+make aws-demo    # run live demo — output streams to your terminal
+make aws-down    # terminate instance, delete all AWS resources
+```
+
+All state (instance ID, key, IP) is stored in `.state/` which is git-ignored. To use a different instance type: `INSTANCE_TYPE=m5.4xlarge make aws-up`.
 
 ## Testing
 
