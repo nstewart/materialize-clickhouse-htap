@@ -1,0 +1,5 @@
+.state/
+.agents/
+.claude/
+.mcp.json
+skills-lock.json

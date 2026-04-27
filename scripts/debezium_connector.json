@@ -1,0 +1,28 @@
+{
+  "name": "postgres-retail-connector",
+  "config": {
+    "connector.class": "io.debezium.connector.postgresql.PostgresConnector",
+    "database.hostname": "postgres",
+    "database.port": "5432",
+    "database.user": "postgres",
+    "database.password": "postgres",
+    "database.dbname": "retail",
+    "topic.prefix": "dbz",
+    "table.include.list": "public.customers,public.products,public.orders,public.order_items,public.inventory",
+    "plugin.name": "pgoutput",
+    "slot.name": "debezium_retail",
+    "publication.name": "dbz_publication",
+    "publication.autocreate.mode": "all_tables",
+    "snapshot.mode": "initial",
+    "decimal.handling.mode": "double",
+    "time.precision.mode": "connect",
+    "transforms": "unwrap",
+    "transforms.unwrap.type": "io.debezium.transforms.ExtractNewRecordState",
+    "transforms.unwrap.drop.tombstones": "true",
+    "transforms.unwrap.delete.handling.mode": "drop",
+    "key.converter": "org.apache.kafka.connect.json.JsonConverter",
+    "key.converter.schemas.enable": "false",
+    "value.converter": "org.apache.kafka.connect.json.JsonConverter",
+    "value.converter.schemas.enable": "false"
+  }
+}

@@ -1,0 +1,129 @@
+name: materialize-clickhouse-htap
+
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_DB: retail
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    command:
+      - postgres
+      - -c
+      - wal_level=logical
+      - -c
+      - max_wal_senders=10
+      - -c
+      - max_replication_slots=10
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d retail"]
+      interval: 5s
+      retries: 15
+    networks:
+      - htap-net
+
+  materialize:
+    image: materialize/materialized:v26.20.2
+    command: >
+      --system-parameter-default=default_timestamp_interval=250ms
+      --system-parameter-default=min_timestamp_interval=250ms
+      --system-parameter-default=max_timestamp_interval=250ms
+      --system-parameter-default=postgres_fetch_slot_resume_lsn_interval=100ms
+      --system-parameter-default=persist_txns_data_shard_retryer_initial_backoff=10ms
+      --system-parameter-default=persist_txns_data_shard_retryer_clamp=100ms
+    ports:
+      - "6875:6875"
+      - "6874:6874"
+      - "6876:6876"
+      - "6877:6877"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -h localhost -p 6875 -U materialize"]
+      interval: 5s
+      retries: 30
+    networks:
+      - htap-net
+
+  redpanda:
+    image: redpandadata/redpanda:latest
+    command:
+      - redpanda
+      - start
+      - --kafka-addr
+      - internal://0.0.0.0:9092,external://0.0.0.0:19092
+      - --advertise-kafka-addr
+      - internal://redpanda:9092,external://localhost:19092
+      - --rpc-addr
+      - redpanda:33145
+      - --advertise-rpc-addr
+      - redpanda:33145
+      - --mode
+      - dev-container
+      - --smp
+      - "1"
+      - --default-log-level=warn
+    ports:
+      - "19092:19092"
+      - "18081:18081"
+      - "9644:9644"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:9644/v1/status/ready"]
+      interval: 5s
+      retries: 20
+    networks:
+      - htap-net
+
+  debezium:
+    image: quay.io/debezium/connect:2.7
+    depends_on:
+      redpanda:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    environment:
+      BOOTSTRAP_SERVERS: redpanda:9092
+      GROUP_ID: debezium-connect
+      CONFIG_STORAGE_TOPIC: debezium_configs
+      OFFSET_STORAGE_TOPIC: debezium_offsets
+      STATUS_STORAGE_TOPIC: debezium_statuses
+      KEY_CONVERTER: org.apache.kafka.connect.json.JsonConverter
+      VALUE_CONVERTER: org.apache.kafka.connect.json.JsonConverter
+      CONNECT_KEY_CONVERTER_SCHEMAS_ENABLE: "false"
+      CONNECT_VALUE_CONVERTER_SCHEMAS_ENABLE: "false"
+    ports:
+      - "8084:8083"
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:8083/connectors"]
+      interval: 5s
+      retries: 40
+    networks:
+      - htap-net
+
+  clickhouse:
+    image: clickhouse/clickhouse-server:latest
+    ports:
+      - "8123:8123"
+      - "9000:9000"
+    volumes:
+      - clickhouse-data:/var/lib/clickhouse
+    environment:
+      CLICKHOUSE_DB: retail
+      CLICKHOUSE_USER: default
+      CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: "1"
+    healthcheck:
+      test: ["CMD-SHELL", "clickhouse-client --query 'SELECT 1'"]
+      interval: 5s
+      retries: 15
+    networks:
+      - htap-net
+
+networks:
+  htap-net:
+    driver: bridge
+
+volumes:
+  postgres-data:
+  clickhouse-data:

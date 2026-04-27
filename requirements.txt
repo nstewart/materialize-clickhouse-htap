@@ -1,0 +1,6 @@
+psycopg2-binary
+clickhouse-connect
+faker
+rich
+pytest
+pytest-timeout
