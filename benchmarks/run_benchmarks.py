@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 run_benchmarks.py — run all benchmark queries against Postgres, Materialize,
-ClickHouse (via Materialize), and ClickHouse (optimized — Debezium CDC +
+ClickHouse (via Materialize), and ClickHouse (standalone — Debezium CDC +
 ClickHouse-native pre-computation).
 
 Usage:
@@ -51,7 +51,7 @@ DISPLAY_NAMES = {
     "Postgres":             "Postgres",
     "Materialize":          "Materialize",
     "ClickHouse":           "ClickHouse (via Materialize)",
-    "ClickHouse Optimized": "ClickHouse (optimized)",
+    "ClickHouse Standalone": "ClickHouse (standalone)",
 }
 
 # ---------------------------------------------------------------------------
@@ -232,7 +232,7 @@ def wait_for_cluster_ready(mz_conn, console) -> None:
 def measure_freshness(pg_conn, mz_conn, ch_client, run_optimized: bool, console) -> tuple[float, float, float]:
     """
     Measure how long after a Postgres commit it takes for data to appear in
-    Materialize, ClickHouse (via Materialize), and ClickHouse (optimized/Debezium).
+    Materialize, ClickHouse (via Materialize), and ClickHouse (standalone/Debezium).
 
     Returns (mz_ms, ch_via_mz_ms, cho_ms).
     cho_ms is measured by watching opt_products for the canary product_id.
@@ -335,7 +335,7 @@ def measure_freshness(pg_conn, mz_conn, ch_client, run_optimized: bool, console)
         f"ClickHouse (via Materialize): {fmt_ms(ch_result)}"
     )
     if run_optimized:
-        summary += f", ClickHouse (optimized/Debezium): {fmt_ms(cho_result)}"
+        summary += f", ClickHouse (standalone/Debezium): {fmt_ms(cho_result)}"
     summary += "[/dim]"
     console.print(summary)
 
@@ -394,7 +394,7 @@ def render_reaction_chart(
 
     has_batch = cho_ms is not None and cho_batch_ms is not None
 
-    all_names = [n for n, *_ in systems] + (["ClickHouse (optimized)"] if cho_ms is not None else [])
+    all_names = [n for n, *_ in systems] + (["ClickHouse (standalone)"] if cho_ms is not None else [])
     name_col  = max(len(n) for n in all_names)
 
     console.print()
@@ -473,7 +473,7 @@ def render_reaction_chart(
                     f" = {fmt_ms(total_ms)}"
                 )
             row = Text()
-            row.append(f"    {'ClickHouse (optimized)':<{name_col}}  ")
+            row.append(f"    {'ClickHouse (standalone)':<{name_col}}  ")
             row.append_text(bar)
             row.append(" " * (bar_width - total_chars))
             row.append(label, style="dim")
@@ -599,7 +599,7 @@ def run_query_suite(
     table.add_column("Materialize",                   justify="right", min_width=20, no_wrap=True)
     table.add_column("ClickHouse\n(via Materialize)",  justify="right", min_width=20, no_wrap=True)
     if run_optimized:
-        table.add_column("ClickHouse\n(optimized)",   justify="right", min_width=20, no_wrap=True)
+        table.add_column("ClickHouse\n(standalone)",   justify="right", min_width=20, no_wrap=True)
     table.add_column("Fastest\nresponse",             justify="left",  min_width=22, no_wrap=True)
 
     names: list[str] = []
@@ -659,7 +659,7 @@ def run_query_suite(
             "ClickHouse (via Materialize)": ch_s["avg"],
         }
         if cho_s:
-            avgs_for_best["ClickHouse (optimized)"] = cho_s["avg"]
+            avgs_for_best["ClickHouse (standalone)"] = cho_s["avg"]
         fastest_name = min(avgs_for_best, key=avgs_for_best.__getitem__)
         fastest_ms   = avgs_for_best[fastest_name]
         row_cells.append(Text(f"{fastest_name}\n{fmt_ms(fastest_ms)} response", style="dim"))
@@ -770,14 +770,14 @@ def main():
             "ClickHouse":  (sum(ch_avgs),  fresh_ch,  "yellow"),
         }
         if run_optimized and any(v > 0 for v in cho_avgs):
-            totals["ClickHouse Optimized"] = (sum(cho_avgs), fresh_cho, "cyan")
+            totals["ClickHouse Standalone"] = (sum(cho_avgs), fresh_cho, "cyan")
 
         winner = min(totals, key=lambda s: totals[s][0])
         avgs, fresh, color = totals[winner]
 
         avgs_map = {
             "Postgres": pg_avgs, "Materialize": mz_avgs,
-            "ClickHouse": ch_avgs, "ClickHouse Optimized": cho_avgs,
+            "ClickHouse": ch_avgs, "ClickHouse Standalone": cho_avgs,
         }
         avgs_list = avgs_map[winner]
         lo, hi = min(avgs_list), max(avgs_list)
@@ -804,7 +804,7 @@ def main():
     )
     if run_optimized:
         console.print(
-            "  [dim]ClickHouse (optimized) freshness = CDC lag (~2-3 s via Debezium) "
+            "  [dim]ClickHouse (standalone) freshness = CDC lag (~2-3 s via Debezium) "
             "+ up to 30 s refresh window for pre-aggregated analytical tables[/dim]\n"
         )
 
