@@ -229,7 +229,7 @@ Operational — Customer orders + spend rank
   Postgres                      ████████████████████████████████████████
   Materialize                   ░░░░░░░░░░░░░░░░░░░░░░░░░░░░░█
   ClickHouse (via Materialize)  ░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░██████████
-  ClickHouse (standalone)        ░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░▒▒▒▒▒██
+  ClickHouse (standalone)       ░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░▒▒▒▒▒██
                                 |          |          |          |         |
                                 1ms        10ms       100ms      1s        10s
 
@@ -237,7 +237,7 @@ Analytical — Revenue histogram ($50 buckets, 90 d)
   Postgres                      ██████████████████████████████
   Materialize                   ░░░░██████████████████████████████████
   ClickHouse (via Materialize)  ░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░
-  ClickHouse (standalone)        ░░░░░░░░░▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒
+  ClickHouse (standalone)       ░░░░░░░░░▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒
                                 |          |          |          |         |
                                 1ms        10ms       100ms      1s        10s
 ```
@@ -294,7 +294,7 @@ Known access patterns benchmarked across four systems. ClickHouse (via Materiali
   Postgres                      █████████████████████████████
   Materialize                   ░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░
   ClickHouse (via Materialize)  ░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░
-  ClickHouse (standalone)        ░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░
+  ClickHouse (standalone)       ░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░
                                 |           |           |           |
                                 1ms         10ms        100ms       1s
 ```
@@ -314,7 +314,7 @@ Known access patterns benchmarked across four systems. ClickHouse (via Materiali
   Postgres                      ████████████████████████████████████████
   Materialize                   ░░░░░░░░░░░░░░░░░░░░░░░░░░░░░█
   ClickHouse (via Materialize)  ░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░██████████
-  ClickHouse (standalone)        ░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░▒▒▒▒▒██
+  ClickHouse (standalone)       ░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░▒▒▒▒▒██
                                 |           |           |           |
                                 1ms         10ms        100ms       1s
 ```
@@ -334,7 +334,7 @@ Known access patterns benchmarked across four systems. ClickHouse (via Materiali
   Postgres                      ██████████████████████████████████████████████
   Materialize                   ░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░
   ClickHouse (via Materialize)  ░░░░░░░░░░░░░░░░░░░░░░░░░░░░██████████████████
-  ClickHouse (standalone)        ░░░░░░░░░░░░░░░░░░░░░░░░░░░▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒
+  ClickHouse (standalone)       ░░░░░░░░░░░░░░░░░░░░░░░░░░░▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒
                                 |           |           |           |
                                 1ms         10ms        100ms       1s
 ```
@@ -386,7 +386,7 @@ Response time alone does not determine which system delivers results soonest aft
   Postgres                      ██████████████████████████████
   Materialize                   ░░░░██████████████████████████████████
   ClickHouse (via Materialize)  ░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░
-  ClickHouse (standalone)        ░░░░░░░░░▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒
+  ClickHouse (standalone)       ░░░░░░░░░▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒
                                 |          |          |         |          |
                                 1ms        10ms       100ms     1s         10s
 ```
@@ -406,7 +406,7 @@ Response time alone does not determine which system delivers results soonest aft
   Postgres                      ████████████████████████████████████████
   Materialize                   ░░░████████████████████████████████████
   ClickHouse (via Materialize)  ░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░
-  ClickHouse (standalone)        ░░░░░░░░░▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒
+  ClickHouse (standalone)       ░░░░░░░░░▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒
                                 |          |          |         |          |
                                 1ms        10ms       100ms     1s         10s
 ```
@@ -426,7 +426,7 @@ Response time alone does not determine which system delivers results soonest aft
   Postgres                      ██████████████████████████████████
   Materialize                   ░█████████████████████████████████████████
   ClickHouse (via Materialize)  ░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░████
-  ClickHouse (standalone)        ░░░░░░░░░▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒
+  ClickHouse (standalone)       ░░░░░░░░░▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒
                                 |          |          |         |          |
                                 1ms        10ms       100ms     1s         10s
 ```
