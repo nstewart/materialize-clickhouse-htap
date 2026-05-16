@@ -71,7 +71,8 @@ SETTINGS
     kafka_group_name           = 'clickhouse-orders-consumer',
     kafka_format               = 'JSONEachRow',
     kafka_skip_broken_messages = 10,
-    kafka_poll_timeout_ms      = 100;
+    kafka_poll_timeout_ms      = 100,
+    kafka_flush_interval_ms    = 50;
 
 -- -----------------------------------------------------------------------------
 -- Materialized View — routes Kafka records into retail.orders_enriched
@@ -133,7 +134,8 @@ SETTINGS
     kafka_group_name           = 'clickhouse-orders-summary-consumer',
     kafka_format               = 'JSONEachRow',
     kafka_skip_broken_messages = 10,
-    kafka_poll_timeout_ms      = 100;
+    kafka_poll_timeout_ms      = 100,
+    kafka_flush_interval_ms    = 50;
 
 -- -----------------------------------------------------------------------------
 -- Materialized View — routes order summary records into retail.orders_summary
@@ -183,7 +185,8 @@ SETTINGS
     kafka_group_name           = 'clickhouse-inventory-consumer',
     kafka_format               = 'JSONEachRow',
     kafka_skip_broken_messages = 10,
-    kafka_poll_timeout_ms      = 100;
+    kafka_poll_timeout_ms      = 100,
+    kafka_flush_interval_ms    = 50;
 
 -- -----------------------------------------------------------------------------
 -- Materialized View — routes inventory records into retail.inventory_snapshots
