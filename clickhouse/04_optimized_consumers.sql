@@ -46,7 +46,8 @@ SETTINGS
     kafka_group_name           = 'clickhouse-dbz-customers',
     kafka_format               = 'JSONEachRow',
     kafka_skip_broken_messages = 10,
-    kafka_flush_interval_ms    = 1000;
+    kafka_flush_interval_ms    = 1000,
+    kafka_poll_timeout_ms      = 100;
 
 CREATE MATERIALIZED VIEW IF NOT EXISTS retail.opt_customers_consumer
 TO retail.opt_customers AS
@@ -79,7 +80,8 @@ SETTINGS
     kafka_group_name           = 'clickhouse-dbz-products',
     kafka_format               = 'JSONEachRow',
     kafka_skip_broken_messages = 10,
-    kafka_flush_interval_ms    = 1000;
+    kafka_flush_interval_ms    = 1000,
+    kafka_poll_timeout_ms      = 100;
 
 CREATE MATERIALIZED VIEW IF NOT EXISTS retail.opt_products_consumer
 TO retail.opt_products AS
@@ -112,7 +114,8 @@ SETTINGS
     kafka_group_name           = 'clickhouse-dbz-orders',
     kafka_format               = 'JSONEachRow',
     kafka_skip_broken_messages = 10,
-    kafka_flush_interval_ms    = 1000;
+    kafka_flush_interval_ms    = 1000,
+    kafka_poll_timeout_ms      = 100;
 
 CREATE MATERIALIZED VIEW IF NOT EXISTS retail.opt_orders_consumer
 TO retail.opt_orders AS
@@ -143,7 +146,8 @@ SETTINGS
     kafka_group_name           = 'clickhouse-dbz-order-items',
     kafka_format               = 'JSONEachRow',
     kafka_skip_broken_messages = 10,
-    kafka_flush_interval_ms    = 1000;
+    kafka_flush_interval_ms    = 1000,
+    kafka_poll_timeout_ms      = 100;
 
 -- Route decoded rows into the destination table.
 CREATE MATERIALIZED VIEW IF NOT EXISTS retail.opt_order_items_consumer
@@ -181,7 +185,8 @@ SETTINGS
     kafka_group_name           = 'clickhouse-dbz-inventory',
     kafka_format               = 'JSONEachRow',
     kafka_skip_broken_messages = 10,
-    kafka_flush_interval_ms    = 1000;
+    kafka_flush_interval_ms    = 1000,
+    kafka_poll_timeout_ms      = 100;
 
 CREATE MATERIALIZED VIEW IF NOT EXISTS retail.opt_inventory_consumer
 TO retail.opt_inventory AS

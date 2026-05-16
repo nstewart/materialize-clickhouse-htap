@@ -50,7 +50,8 @@ SETTINGS
     kafka_group_name           = 'clickhouse-sales-by-dim-consumer',
     kafka_format               = 'JSONEachRow',
     kafka_skip_broken_messages = 10,
-    kafka_flush_interval_ms    = 1000;
+    kafka_flush_interval_ms    = 1000,
+    kafka_poll_timeout_ms      = 100;
 
 CREATE MATERIALIZED VIEW IF NOT EXISTS retail.mz_sales_by_dim_consumer
 TO retail.mz_sales_by_dim
@@ -95,7 +96,8 @@ SETTINGS
     kafka_group_name           = 'clickhouse-revenue-histogram-consumer',
     kafka_format               = 'JSONEachRow',
     kafka_skip_broken_messages = 10,
-    kafka_flush_interval_ms    = 1000;
+    kafka_flush_interval_ms    = 1000,
+    kafka_poll_timeout_ms      = 100;
 
 CREATE MATERIALIZED VIEW IF NOT EXISTS retail.mz_revenue_histogram_consumer
 TO retail.mz_revenue_histogram
