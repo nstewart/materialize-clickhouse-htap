@@ -66,11 +66,12 @@ CREATE TABLE IF NOT EXISTS retail.kafka_orders_enriched_raw
 )
 ENGINE = Kafka
 SETTINGS
-    kafka_broker_list     = 'redpanda:9092',
-    kafka_topic_list      = 'orders-enriched',
-    kafka_group_name      = 'clickhouse-orders-consumer',
-    kafka_format          = 'JSONEachRow',
-    kafka_skip_broken_messages = 10;
+    kafka_broker_list          = 'redpanda:9092',
+    kafka_topic_list           = 'orders-enriched',
+    kafka_group_name           = 'clickhouse-orders-consumer',
+    kafka_format               = 'JSONEachRow',
+    kafka_skip_broken_messages = 10,
+    kafka_poll_timeout_ms      = 100;
 
 -- -----------------------------------------------------------------------------
 -- Materialized View — routes Kafka records into retail.orders_enriched
@@ -127,11 +128,12 @@ CREATE TABLE IF NOT EXISTS retail.kafka_orders_summary_raw
 )
 ENGINE = Kafka
 SETTINGS
-    kafka_broker_list     = 'redpanda:9092',
-    kafka_topic_list      = 'orders-summary',
-    kafka_group_name      = 'clickhouse-orders-summary-consumer',
-    kafka_format          = 'JSONEachRow',
-    kafka_skip_broken_messages = 10;
+    kafka_broker_list          = 'redpanda:9092',
+    kafka_topic_list           = 'orders-summary',
+    kafka_group_name           = 'clickhouse-orders-summary-consumer',
+    kafka_format               = 'JSONEachRow',
+    kafka_skip_broken_messages = 10,
+    kafka_poll_timeout_ms      = 100;
 
 -- -----------------------------------------------------------------------------
 -- Materialized View — routes order summary records into retail.orders_summary
@@ -176,11 +178,12 @@ CREATE TABLE IF NOT EXISTS retail.kafka_inventory_snapshots_raw
 )
 ENGINE = Kafka
 SETTINGS
-    kafka_broker_list     = 'redpanda:9092',
-    kafka_topic_list      = 'inventory-snapshots',
-    kafka_group_name      = 'clickhouse-inventory-consumer',
-    kafka_format          = 'JSONEachRow',
-    kafka_skip_broken_messages = 10;
+    kafka_broker_list          = 'redpanda:9092',
+    kafka_topic_list           = 'inventory-snapshots',
+    kafka_group_name           = 'clickhouse-inventory-consumer',
+    kafka_format               = 'JSONEachRow',
+    kafka_skip_broken_messages = 10,
+    kafka_poll_timeout_ms      = 100;
 
 -- -----------------------------------------------------------------------------
 -- Materialized View — routes inventory records into retail.inventory_snapshots

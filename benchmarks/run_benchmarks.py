@@ -159,7 +159,7 @@ def fmt_cell(stats: dict, is_winner: bool) -> Text:
 # Cluster readiness
 # ---------------------------------------------------------------------------
 
-_CPU_SETTLE_THRESHOLD = 200
+_CPU_SETTLE_THRESHOLD = 600
 _CPU_SETTLE_SAMPLES   = 3
 _POLL_INTERVAL_S      = 2.0
 
