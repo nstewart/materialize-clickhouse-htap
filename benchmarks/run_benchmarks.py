@@ -159,9 +159,18 @@ def fmt_cell(stats: dict, is_winner: bool) -> Text:
 # Cluster readiness
 # ---------------------------------------------------------------------------
 
-_CPU_SETTLE_THRESHOLD = 600
+_CPU_SETTLE_THRESHOLD = 200
 _CPU_SETTLE_SAMPLES   = 3
 _POLL_INTERVAL_S      = 2.0
+
+
+def _materialization_lag_s(cur) -> float:
+    cur.execute("""
+        SELECT COALESCE(MAX(EXTRACT(EPOCH FROM global_lag)), 0)
+        FROM mz_internal.mz_materialization_lag
+        WHERE object_id NOT LIKE 's%%'
+    """)
+    return float(cur.fetchone()[0] or 0.0)
 
 
 def wait_for_cluster_ready(mz_conn, console) -> None:
@@ -183,39 +192,45 @@ def wait_for_cluster_ready(mz_conn, console) -> None:
         time.sleep(_POLL_INTERVAL_S)
     console.print(" [dim]done.[/dim]")
 
+    # mz_cluster_replica_utilization.cpu_percent reports raw multi-core usage with
+    # no CPU quota denominator in self-managed Docker, so it stays pegged at 500%+
+    # even after the cluster is idle. Skip the CPU wait if materialization lag is
+    # already at zero — that's the authoritative readiness signal.
     console.print("  [dim]Waiting for transform_sink_cluster to settle...[/dim]", end="")
-    settled = 0
-    while settled < _CPU_SETTLE_SAMPLES:
-        cur.execute("""
-            SELECT u.cpu_percent, u.memory_percent,
-                   m.memory_bytes / 1024 / 1024 AS memory_mb
-            FROM mz_internal.mz_cluster_replica_utilization u
-            JOIN mz_cluster_replicas r ON u.replica_id = r.id
-            JOIN mz_clusters c ON r.cluster_id = c.id
-            JOIN mz_internal.mz_cluster_replica_metrics m ON m.replica_id = r.id
-            WHERE c.name = 'transform_sink_cluster'
-        """)
-        row = cur.fetchone()
-        cpu    = float(row[0] or 0) if row else 0.0
-        mem_mb = float(row[2] or 0) if row else 0.0
-        if cpu < _CPU_SETTLE_THRESHOLD:
-            settled += 1
-            console.print(f" [CPU {cpu:.0f}% MEM {mem_mb:.0f} MB]", end="")
-        else:
-            settled = 0
-            console.print(f" [dim][CPU {cpu:.0f}% — settling][/dim]", end="")
-        if settled < _CPU_SETTLE_SAMPLES:
-            time.sleep(_POLL_INTERVAL_S)
-    console.print(" [dim]ready.[/dim]")
+    if _materialization_lag_s(cur) == 0.0:
+        console.print(" [dim]lag already 0 — skipping CPU wait.[/dim]")
+    else:
+        settled = 0
+        while settled < _CPU_SETTLE_SAMPLES:
+            cur.execute("""
+                SELECT u.cpu_percent, u.memory_percent,
+                       m.memory_bytes / 1024 / 1024 AS memory_mb
+                FROM mz_internal.mz_cluster_replica_utilization u
+                JOIN mz_cluster_replicas r ON u.replica_id = r.id
+                JOIN mz_clusters c ON r.cluster_id = c.id
+                JOIN mz_internal.mz_cluster_replica_metrics m ON m.replica_id = r.id
+                WHERE c.name = 'transform_sink_cluster'
+            """)
+            row = cur.fetchone()
+            cpu    = float(row[0] or 0) if row else 0.0
+            mem_mb = float(row[2] or 0) if row else 0.0
+            if cpu < _CPU_SETTLE_THRESHOLD:
+                settled += 1
+                console.print(f" [CPU {cpu:.0f}% MEM {mem_mb:.0f} MB]", end="")
+            else:
+                settled = 0
+                # Re-check lag: if it hit zero while we were waiting on CPU, skip ahead.
+                if _materialization_lag_s(cur) == 0.0:
+                    console.print(f" [dim][CPU {cpu:.0f}% but lag=0 — proceeding][/dim]", end="")
+                    break
+                console.print(f" [dim][CPU {cpu:.0f}% — settling][/dim]", end="")
+            if settled < _CPU_SETTLE_SAMPLES:
+                time.sleep(_POLL_INTERVAL_S)
+        console.print(" [dim]ready.[/dim]")
 
     console.print("  [dim]Waiting for materialization lag to reach steady-state...[/dim]", end="")
     while True:
-        cur.execute("""
-            SELECT COALESCE(MAX(EXTRACT(EPOCH FROM global_lag)), 0)
-            FROM mz_internal.mz_materialization_lag
-            WHERE object_id NOT LIKE 's%%'
-        """)
-        max_lag_s = cur.fetchone()[0] or 0.0
+        max_lag_s = _materialization_lag_s(cur)
         if max_lag_s <= 1.0:
             break
         console.print(f" [dim][{max_lag_s:.1f} s behind][/dim]", end="")
