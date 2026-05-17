@@ -144,13 +144,9 @@ def fmt_qps(avg_ms: float) -> str:
     return f"{q:.0f} QPS"
 
 
-def fmt_cell(stats: dict, is_winner: bool) -> Text:
+def fmt_cell(stats: dict) -> Text:
     t = Text()
-    if is_winner:
-        t.append(f"{fmt_ms(stats['avg'])}  {fmt_qps(stats['avg'])}", style="bold green")
-        t.append(" ✓", style="green")
-    else:
-        t.append(f"{fmt_ms(stats['avg'])}  {fmt_qps(stats['avg'])}")
+    t.append(f"{fmt_ms(stats['avg'])}  {fmt_qps(stats['avg'])}")
     t.append(f"\np90 {fmt_ms(stats['p90'])}  max {fmt_ms(stats['max'])}", style="dim")
     return t
 
@@ -615,7 +611,6 @@ def run_query_suite(
     table.add_column("ClickHouse\n(via Materialize)",  justify="right", min_width=20, no_wrap=True)
     if run_optimized:
         table.add_column("ClickHouse\n(standalone)",   justify="right", min_width=20, no_wrap=True)
-    table.add_column("Fastest\nresponse",             justify="left",  min_width=22, no_wrap=True)
 
     names: list[str] = []
     pg_avgs, mz_avgs, ch_avgs, cho_avgs = [], [], [], []
@@ -654,30 +649,14 @@ def run_query_suite(
         ch_avgs.append(ch_s["avg"])
         cho_avgs.append(cho_s["avg"] if cho_s else 0.0)
 
-        best = min(
-            pg_s["avg"], mz_s["avg"], ch_s["avg"],
-            *(([cho_s["avg"]] if cho_s else [])),
-        )
         row_cells = [
             name,
-            fmt_cell(pg_s,  pg_s["avg"]  == best),
-            fmt_cell(mz_s,  mz_s["avg"]  == best),
-            fmt_cell(ch_s,  ch_s["avg"]  == best),
+            fmt_cell(pg_s),
+            fmt_cell(mz_s),
+            fmt_cell(ch_s),
         ]
         if run_optimized:
-            row_cells.append(fmt_cell(cho_s, cho_s is not None and cho_s["avg"] == best) if cho_s else Text("—"))
-        # Name the fastest-response system and its time — no speedup ratio, since
-        # response time is only one ingredient in total reaction time (freshness + response).
-        avgs_for_best = {
-            "Postgres":   pg_s["avg"],
-            "Materialize": mz_s["avg"],
-            "ClickHouse (via Materialize)": ch_s["avg"],
-        }
-        if cho_s:
-            avgs_for_best["ClickHouse (standalone)"] = cho_s["avg"]
-        fastest_name = min(avgs_for_best, key=avgs_for_best.__getitem__)
-        fastest_ms   = avgs_for_best[fastest_name]
-        row_cells.append(Text(f"{fastest_name}\n{fmt_ms(fastest_ms)} response", style="dim"))
+            row_cells.append(fmt_cell(cho_s) if cho_s else Text("—"))
         table.add_row(*row_cells)
 
     console.print(Rule(f" {label} ", style="dim"))
@@ -778,7 +757,7 @@ def main():
         cho_batch_ms=an_batch_ms if run_optimized else None,
     )
 
-    def _conclude(pg_avgs, mz_avgs, ch_avgs, cho_avgs, fresh_mz, fresh_ch, fresh_cho):
+    def _best_fit(pg_avgs, mz_avgs, ch_avgs, cho_avgs, fresh_mz, fresh_ch, fresh_cho):
         totals = {
             "Postgres":    (sum(pg_avgs),  0.0,       "blue"),
             "Materialize": (sum(mz_avgs),  fresh_mz,  "purple"),
@@ -787,35 +766,37 @@ def main():
         if run_optimized and any(v > 0 for v in cho_avgs):
             totals["ClickHouse Standalone"] = (sum(cho_avgs), fresh_cho, "cyan")
 
-        winner = min(totals, key=lambda s: totals[s][0])
-        avgs, fresh, color = totals[winner]
+        # Lowest total reaction time identifies the system best suited for this
+        # query class — not a contest, just where this architecture routes the work.
+        best = min(totals, key=lambda s: totals[s][0])
+        _, fresh, color = totals[best]
 
         avgs_map = {
             "Postgres": pg_avgs, "Materialize": mz_avgs,
             "ClickHouse": ch_avgs, "ClickHouse Standalone": cho_avgs,
         }
-        avgs_list = avgs_map[winner]
+        avgs_list = avgs_map[best]
         lo, hi = min(avgs_list), max(avgs_list)
         range_str = f"{lo:.1f}–{hi:.1f} ms"
         fresh_str = (
-            "0 ms freshness lag" if winner == "Postgres"
+            "0 ms freshness lag" if best == "Postgres"
             else f"{fmt_ms(fresh)} freshness lag"
         )
-        return DISPLAY_NAMES[winner], color, range_str, fresh_str
+        return DISPLAY_NAMES[best], color, range_str, fresh_str
 
-    op_winner, op_color, op_range, op_fresh = _conclude(
+    op_best, op_color, op_range, op_fresh = _best_fit(
         op_pg, op_mz, op_ch, op_cho, fresh_mz_ms, fresh_ch_ms, fresh_cho_ms,
     )
-    an_winner, an_color, an_range, an_fresh = _conclude(
+    an_best, an_color, an_range, an_fresh = _best_fit(
         an_pg, an_mz, an_ch, an_cho, fresh_mz_ms, fresh_ch_ms, fresh_cho_ms,
     )
     src_pg_range = f"{min(op_pg):.1f}–{max(op_pg):.1f} ms"
 
-    console.print(Rule(" CONCLUSION ", style="dim"))
+    console.print(Rule(" ROUTING SUMMARY ", style="dim"))
     console.print(
-        f"  [bold]Operational queries[/bold]  → [{op_color}]{op_winner}[/{op_color}]  ({op_range} response, {op_fresh})\n"
-        f"  [bold]Analytical queries[/bold]   → [{an_color}]{an_winner}[/{an_color}]  ({an_range} response, {an_fresh})\n"
-        f"  [bold]Source of truth[/bold]      → [blue]Postgres[/blue]       ({src_pg_range} response, 0 ms freshness lag)\n"
+        f"  [bold]Operational queries[/bold]  served by [{op_color}]{op_best}[/{op_color}]  ({op_range} response, {op_fresh})\n"
+        f"  [bold]Analytical queries[/bold]   served by [{an_color}]{an_best}[/{an_color}]  ({an_range} response, {an_fresh})\n"
+        f"  [bold]Source of truth[/bold]      [blue]Postgres[/blue]       ({src_pg_range} response, 0 ms freshness lag)\n"
     )
     if run_optimized:
         console.print(

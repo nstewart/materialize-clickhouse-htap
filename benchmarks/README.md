@@ -10,7 +10,7 @@ Postgres (OLTP) → Materialize (real-time data products) → Redpanda → Click
 
 ## What the benchmark shows
 
-| Query type | Best tool | Why |
+| Query type | Served by | Why this fit |
 |---|---|---|
 | **Operational** — point lookups, customer-facing reads | **Materialize** | Results are pre-computed and indexed; reads return in < 15 ms regardless of dataset size |
 | **Analytical, fixed shape** — histograms, cross-dimensional aggregations | **ClickHouse reading a Materialize pre-aggregated sink** | The aggregation is maintained incrementally by Materialize IVM; ClickHouse reads a small result table (~50–200 rows) with no GROUP BY at query time |
@@ -67,22 +67,22 @@ Indicative output (1M orders / 2.8M order items / 100K customers, single `m5.2xl
 ```
 ── OPERATIONAL QUERIES (pre-indexed data products) ──────────────────
   Query                                  Postgres   Materialize   CH (via MZ)   CH (standalone)
-  Inventory lookup (by SKU)              224 ms      24 ms         11.5 ms       10.6 ms ✓
-  Customer orders + lifetime metrics     2.03 s      68.8 ms ✓     1.05 s        301 ms
-  Product performance (by SKU)           4.24 s      14.4 ms ✓     2.07 s        13.7 ms
+  Inventory lookup (by SKU)              224 ms      24 ms         11.5 ms       10.6 ms
+  Customer orders + lifetime metrics     2.03 s      68.8 ms       1.05 s        301 ms
+  Product performance (by SKU)           4.24 s      14.4 ms       2.07 s        13.7 ms
 
 ── ANALYTICAL QUERIES ───────────────────────────────────────────────
   Query                                  Postgres   Materialize   CH (via MZ)   CH (standalone)
-  Revenue histogram (pre-aggregated)     489 ms      3.19 s        17.5 ms ✓     27.7 ms
-  Cross-dimensional (pre-aggregated)     3.32 s      4.26 s        27.2 ms ✓     7.3 ms
-  Cohort retention (flat-table scan)     1.10 s      5.51 s        332.8 ms ✓    114.3 ms
+  Revenue histogram (pre-aggregated)     489 ms      3.19 s        17.5 ms       27.7 ms
+  Cross-dimensional (pre-aggregated)     3.32 s      4.26 s        27.2 ms       7.3 ms
+  Cohort retention (flat-table scan)     1.10 s      5.51 s        332.8 ms      114.3 ms
 ```
 
 Note: the Materialize analytical numbers are from the *unoptimized* path — scanning `order_detail` with no aggregation index. The same pre-aggregated MVs that feed the CH analytical sink (`revenue_histogram`, `sales_by_dim`) live in Materialize and would serve those two fixed-shape queries in milliseconds if queried directly. See the project [README](../README.md) for full reaction-time analysis (response + freshness lag).
 
 ---
 
-## Why Materialize wins for operational queries
+## Operational queries: why Materialize fits
 
 Materialize maintains **incrementally-updated, indexed views** served from memory:
 
@@ -92,15 +92,15 @@ Materialize maintains **incrementally-updated, indexed views** served from memor
 
 Because Materialize has already done the join and aggregation work as data arrived, a read is a direct index lookup — O(1) rather than O(table size).
 
-The extreme multipliers (142x, 286x) come from queries that require ranking one entity among all entities. In Postgres, computing a customer's spend rank requires aggregating all 2.8M order items at query time. This is structurally unavoidable regardless of how many orders the target customer has — no index eliminates the full scan. Materialize maintains the rank incrementally; the cost is paid once per write, not per read.
+The largest response-time differences appear on queries that rank one entity among all entities. In Postgres, computing a customer's spend rank requires aggregating all 2.8M order items at query time — structurally unavoidable regardless of how many orders the target customer has, since no index eliminates the full scan. Materialize maintains the rank incrementally: the cost is paid once per write, not per read. This is why operational reads are routed there.
 
 ---
 
-## Why ClickHouse wins for analytical queries
+## Analytical queries: why ClickHouse fits
 
 Two distinct mechanisms, one per query shape:
 
-**Fixed shapes — revenue histogram, cross-dimensional aggregation.** Materialize maintains a pre-aggregated MV (`revenue_histogram`, `sales_by_dim`) incrementally and sinks it to ClickHouse as a small table (~50 rows for the histogram, ~203 for the cross-dim cube). The ClickHouse query reads the pre-bucketed result directly — no scan, no filter, no GROUP BY at query time. The work is done at write time in Materialize; ClickHouse just serves the answer.
+**Fixed shapes — revenue histogram, cross-dimensional aggregation.** Materialize maintains a pre-aggregated MV (`revenue_histogram`, `sales_by_dim`) incrementally and sinks it to ClickHouse as a small table (~50 rows for the histogram, ~203 for the cross-dim cube). The ClickHouse query reads the pre-bucketed result directly — no scan, no filter, no GROUP BY at query time. The work is done at write time in Materialize; ClickHouse serves the answer.
 
 **Ad-hoc shapes — cohort retention.** No pre-aggregation exists, so ClickHouse scans the flat `orders_summary` sink (1M rows) at query time. Columnar storage reads only the referenced columns, vectorized execution applies SIMD across column batches, and parallel execution spreads the work across cores. The flat table has no joins to resolve because Materialize denormalized the data before it arrived.
 
@@ -108,11 +108,11 @@ Both paths benefit from Materialize having done the join work upstream. The spli
 
 ---
 
-## Why Materialize is slow for analytical queries in this benchmark
+## Why Materialize's analytical numbers look slow here
 
-The `materialize.sql` files for the analytical queries are intentionally the **unoptimized** path: they scan `order_detail` directly with no index for the aggregation shape. Materialize's row-oriented in-memory store is slower than ClickHouse's columnar engine for that kind of full scan.
+The `materialize.sql` files for the analytical queries are intentionally the **unoptimized** path: they scan `order_detail` directly with no index for the aggregation shape. Materialize's row-oriented in-memory store is well-suited to incremental maintenance of indexed views, less so to ad-hoc full-table scans for arbitrary aggregations — that's the workload ClickHouse's columnar engine is built for.
 
-If you ran the same fixed-shape queries against the pre-aggregated MVs that already exist in `materialize/03_serving.sql` (the same MVs that feed the ClickHouse sink), Materialize would serve them in milliseconds — the data is already bucketed. We don't measure that path here because the point of the comparison is to show what happens when you *don't* define a purpose-built MV. For truly ad-hoc shapes (cohort retention), creating a dedicated MV defeats the purpose; routing those to ClickHouse is the appropriate choice.
+If you ran the same fixed-shape queries against the pre-aggregated MVs that already exist in `materialize/03_serving.sql` (the same MVs that feed the ClickHouse sink), Materialize would serve them in milliseconds — the data is already bucketed. We don't measure that path here because the point is to show what happens when you *don't* define a purpose-built MV. For truly ad-hoc shapes (cohort retention), defining a dedicated MV defeats the purpose; routing those to ClickHouse is the right fit.
 
 ---
 
