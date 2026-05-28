@@ -354,13 +354,30 @@ def measure_freshness(pg_conn, mz_conn, ch_client, run_optimized: bool, console)
 
 
 # ---------------------------------------------------------------------------
-# Reaction time chart (log₁₀ scale)
+# Reaction time chart (linear scale)
 # ---------------------------------------------------------------------------
 
-def _log_pos(ms: float, max_log: float, width: int) -> int:
-    if ms <= 0:
+def _lin_pos(ms: float, max_ms: float, width: int) -> int:
+    if ms <= 0 or max_ms <= 0:
         return 0
-    return min(width, round(math.log10(max(ms, 0.5)) / max_log * width))
+    return min(width, round(ms / max_ms * width))
+
+
+def _nice_axis(max_ms: float) -> tuple[float, float]:
+    """Round max_ms up to a 'nice' cap and pick a tick step yielding ~5 ticks."""
+    if max_ms <= 0:
+        return 1.0, 0.25
+    exp = math.floor(math.log10(max_ms))
+    base = 10 ** exp
+    for mult in (1, 2, 2.5, 5, 10):
+        cap = mult * base
+        if cap >= max_ms:
+            break
+    for div in (5, 4):
+        step = cap / div
+        if step >= 1:
+            return cap, step
+    return cap, cap / 4
 
 
 def render_reaction_chart(
@@ -377,7 +394,7 @@ def render_reaction_chart(
     cho_cdc_ms: float = 0.0,
     cho_batch_ms: list[float] | None = None,
 ) -> None:
-    """Render a log-scaled reaction-time bar chart.
+    """Render a linear-scaled reaction-time bar chart.
 
     cho_batch_ms: per-query average batch scheduling wait for ClickHouse
     optimized (refresh_interval / 2). None means no batch layer (raw CDC only).
@@ -401,7 +418,7 @@ def render_reaction_chart(
     if cho_ms is not None:
         for resp, batch in zip(cho_ms, cho_batch):
             max_total = max(max_total, cho_cdc_ms + batch + resp)
-    max_log = math.log10(max(max_total, 1.0))
+    cap, step = _nice_axis(max(max_total, 1.0))
 
     has_batch = cho_ms is not None and cho_batch_ms is not None
 
@@ -410,7 +427,7 @@ def render_reaction_chart(
 
     console.print()
     console.print(Rule(
-        f" {title} — Reaction time (log₁₀ ms scale, each step = 10×) ",
+        f" {title} — Reaction time (linear ms scale) ",
         style="dim",
     ))
     console.print()
@@ -420,95 +437,94 @@ def render_reaction_chart(
     console.print("  [dim]███ query response time (measured by this benchmark)[/dim]")
     console.print()
 
-    for q_idx, q_name in enumerate(query_names):
-        console.print(f"  [bold]{q_name}[/bold]")
+    def _render_row(sys_name: str, cdc_ms: float, batch_ms: float, resp_ms: float) -> None:
+        total_ms = cdc_ms + batch_ms + resp_ms
 
-        for sys_name, fresh_ms, resp_list in systems:
-            resp_ms  = resp_list[q_idx]
-            total_ms = fresh_ms + resp_ms
+        total_chars = _lin_pos(total_ms, cap, bar_width)
+        if total_ms > 0:
+            cdc_chars   = round(total_chars * cdc_ms   / total_ms)
+            batch_chars = round(total_chars * batch_ms / total_ms)
+            resp_chars  = total_chars - cdc_chars - batch_chars
+        else:
+            cdc_chars = batch_chars = resp_chars = 0
 
-            total_chars = _log_pos(total_ms, max_log, bar_width)
-            fresh_chars = round(total_chars * fresh_ms / total_ms) if total_ms > 0 else 0
-            resp_chars  = total_chars - fresh_chars
+        bar = Text()
+        if cdc_chars > 0:
+            bar.append("░" * cdc_chars, style="dim yellow")
+        if batch_chars > 0:
+            bar.append("▒" * batch_chars, style="dim cyan")
+        if resp_chars > 0:
+            bar.append("█" * resp_chars)
 
-            bar = Text()
-            if fresh_chars > 0:
-                bar.append("░" * fresh_chars, style="dim yellow")
-            if resp_chars > 0:
-                bar.append("█" * resp_chars)
-
+        if batch_ms > 0:
             label = (
-                f"  {fmt_ms(fresh_ms)} fresh"
+                f"  {fmt_ms(cdc_ms)} CDC"
+                f" + {fmt_ms(batch_ms)} avg batch"
+                f" + {fmt_ms(resp_ms)} resp"
+                f" = {fmt_ms(total_ms)}"
+            )
+        else:
+            label = (
+                f"  {fmt_ms(cdc_ms)} fresh"
                 f" + {fmt_ms(resp_ms)} response"
                 f" = {fmt_ms(total_ms)}"
             )
-            row = Text()
-            row.append(f"    {sys_name:<{name_col}}  ")
-            row.append_text(bar)
-            row.append(" " * (bar_width - total_chars))
-            row.append(label, style="dim")
-            console.print(row)
 
+        row = Text()
+        row.append(f"    {sys_name:<{name_col}}  ")
+        row.append_text(bar)
+        row.append(" " * (bar_width - total_chars))
+        row.append(label, style="dim")
+        console.print(row)
+
+    for q_idx, q_name in enumerate(query_names):
+        console.print(f"  [bold]{q_name}[/bold]")
+
+        # Collect (name, cdc, batch, resp) for every system, sort by total
+        # reaction time, then render fastest first.
+        rows = [
+            (sys_name, fresh_ms, 0.0, resp_list[q_idx])
+            for sys_name, fresh_ms, resp_list in systems
+        ]
         if cho_ms is not None:
-            resp_ms  = cho_ms[q_idx]
-            batch_ms = cho_batch[q_idx]
-            total_ms = cho_cdc_ms + batch_ms + resp_ms
+            rows.append((
+                "ClickHouse (standalone)",
+                cho_cdc_ms,
+                cho_batch[q_idx],
+                cho_ms[q_idx],
+            ))
+        rows.sort(key=lambda r: r[1] + r[2] + r[3])
 
-            total_chars = _log_pos(total_ms, max_log, bar_width)
-            if total_ms > 0:
-                cdc_chars   = round(total_chars * cho_cdc_ms / total_ms)
-                batch_chars = round(total_chars * batch_ms   / total_ms)
-                resp_chars  = total_chars - cdc_chars - batch_chars
-            else:
-                cdc_chars = batch_chars = resp_chars = 0
-
-            bar = Text()
-            if cdc_chars > 0:
-                bar.append("░" * cdc_chars,   style="dim yellow")
-            if batch_chars > 0:
-                bar.append("▒" * batch_chars, style="dim cyan")
-            if resp_chars > 0:
-                bar.append("█" * resp_chars)
-
-            if batch_ms > 0:
-                label = (
-                    f"  {fmt_ms(cho_cdc_ms)} CDC"
-                    f" + {fmt_ms(batch_ms)} avg batch"
-                    f" + {fmt_ms(resp_ms)} resp"
-                    f" = {fmt_ms(total_ms)}"
-                )
-            else:
-                label = (
-                    f"  {fmt_ms(cho_cdc_ms)} fresh"
-                    f" + {fmt_ms(resp_ms)} response"
-                    f" = {fmt_ms(total_ms)}"
-                )
-            row = Text()
-            row.append(f"    {'ClickHouse (standalone)':<{name_col}}  ")
-            row.append_text(bar)
-            row.append(" " * (bar_width - total_chars))
-            row.append(label, style="dim")
-            console.print(row)
+        for sys_name, cdc_ms, batch_ms, resp_ms in rows:
+            _render_row(sys_name, cdc_ms, batch_ms, resp_ms)
 
         console.print()
 
     prefix_width = 4 + name_col + 2
-    tick_line  = [" "] * bar_width
-    label_line = [" "] * (bar_width + 8)
-    for exp in range(5):
-        ms  = 10 ** exp
-        pos = _log_pos(ms, max_log, bar_width)
-        if pos >= bar_width:
+    tick_line  = [" "] * (bar_width + 1)
+    label_line = [" "] * (bar_width + 12)
+    n_ticks = int(round(cap / step)) + 1
+    for i in range(n_ticks):
+        ms  = i * step
+        pos = _lin_pos(ms, cap, bar_width)
+        if pos > bar_width:
             break
         tick_line[pos] = "|"
-        lbl = f"{ms}ms" if ms < 1000 else f"{ms // 1000}s"
-        for i, ch in enumerate(lbl):
-            if pos + i < len(label_line):
-                label_line[pos + i] = ch
+        if ms == 0:
+            lbl = "0"
+        elif ms >= 1000:
+            lbl = f"{ms / 1000:g}s"
+        else:
+            lbl = f"{int(round(ms))}ms"
+        start = max(0, pos - len(lbl) // 2)
+        for j, ch in enumerate(lbl):
+            idx = start + j
+            if 0 <= idx < len(label_line):
+                label_line[idx] = ch
 
     indent = " " * prefix_width
-    console.print(indent + "".join(tick_line))
-    console.print(indent + "".join(label_line))
+    console.print(indent + "".join(tick_line).rstrip())
+    console.print(indent + "".join(label_line).rstrip())
     console.print()
 
 
