@@ -53,20 +53,20 @@ Freshness values are from a local 10-run benchmark (Materialize ~271 ms via CDC,
 ███ query response time
 
 Operational — Customer orders + spend rank
-  Postgres                      ██████████████████████████████████████████
-  Materialize                   ░░░░░░░░░░░░░░░░░░░░░░░░░░██████
-  ClickHouse (via Materialize)  ░░░░░░░░████████████████████████████████
-  ClickHouse (standalone)       ░░░░░░░░░░░░░░░░░░░░░░░░░░▒▒▒▒▒▒▒▒▒▒██████
-                                |           |            |           |
-                                1ms         10ms         100ms       1s
+  Materialize                   ░░░░░█                                          (340.0 ms)
+  ClickHouse (via Materialize)  ░░░░░████████████████████                       (1.33 s)
+  Postgres                      █████████████████████████████████████           (2.03 s)
+  ClickHouse (standalone)       ░░░░░░░░░░░░░░░░░░░░░░░░▒▒▒▒▒▒▒▒▒██████         (2.12 s)
+                                |        |        |         |        |        |
+                                0      500ms     1s       1.5s      2s      2.5s
 
 Analytical — Revenue histogram ($50 buckets, 90 d)
-  Postgres                      █████████████████████████████
-  Materialize                   ░░░████████████████████████████████████
-  ClickHouse (via Materialize)  ░░░░░░░░░░░░░░░░░░░░░░░░░██
-  ClickHouse (standalone)       ░░░░▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒
-                                |          |          |          |          |
-                                1ms        10ms       100ms      1s         10s
+  ClickHouse (via Materialize)  ░                                               (300.3 ms)
+  Postgres                      █                                               (489.3 ms)
+  Materialize                   ░███████                                        (3.46 s)
+  ClickHouse (standalone)       ░░░▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒          (16.35 s)
+                                |        |        |         |        |        |
+                                0       4s       8s        12s      16s      20s
 ```
 
 **Operational — Customer orders + spend rank**
@@ -74,9 +74,9 @@ Analytical — Revenue histogram ($50 buckets, 90 d)
 
 | System                       | Freshness lag | Avg batch wait | Response | Total reaction time |
 | ---------------------------- | ------------- | -------------- | -------- | ------------------- |
-| Postgres                     | 0 ms          | —              | 2.03 s   | **2.03 s**          |
 | Materialize                  | 271.2 ms      | —              | 68.8 ms  | **340.0 ms**        |
 | ClickHouse (via Materialize) | 282.8 ms      | —              | 1.05 s   | **1.33 s**          |
+| Postgres                     | 0 ms          | —              | 2.03 s   | **2.03 s**          |
 | ClickHouse (standalone)      | 1.32 s        | 500 ms         | 301.5 ms | **2.12 s**          |
 
 
@@ -85,9 +85,9 @@ Analytical — Revenue histogram ($50 buckets, 90 d)
 
 | System                       | Freshness lag | Avg batch wait | Response | Total reaction time |
 | ---------------------------- | ------------- | -------------- | -------- | ------------------- |
+| ClickHouse (via Materialize) | 282.8 ms      | —              | 17.5 ms  | **300.3 ms**        |
 | Postgres                     | 0 ms          | —              | 489.3 ms | **489.3 ms**        |
 | Materialize                  | 271.2 ms      | —              | 3.19 s   | **3.46 s**          |
-| ClickHouse (via Materialize) | 282.8 ms      | —              | 17.5 ms  | **300.3 ms**        |
 | ClickHouse (standalone)      | 1.32 s        | 15 s           | 27.7 ms  | **16.35 s**         |
 
 
@@ -291,61 +291,61 @@ Known access patterns benchmarked across four systems. ClickHouse (via Materiali
 **Inventory lookup (by SKU)**
 
 ```
-  Postgres                      ██████████████████████████████
-  Materialize                   ░░░░░░░░░░░░░░░░░░░░░░░░░░░░███
-  ClickHouse (via Materialize)  ░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░█
-  ClickHouse (standalone)       ░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░
-                                |           |           |           |
-                                1ms         10ms        100ms       1s
+  Postgres                      █████                                           (224.4 ms)
+  ClickHouse (via Materialize)  ░░░░░░░                                         (294.3 ms)
+  Materialize                   ░░░░░░█                                         (295.4 ms)
+  ClickHouse (standalone)       ░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░                 (1.33 s)
+                                |        |        |         |        |        |
+                                0      400ms    800ms     1.2s     1.6s      2s
 ```
 
 
 | System                       | Freshness lag | Avg batch wait | Response | Total reaction time |
 | ---------------------------- | ------------- | -------------- | -------- | ------------------- |
 | Postgres                     | 0 ms          | —              | 224.4 ms | **224.4 ms**        |
-| Materialize                  | 271.2 ms      | —              | 24.2 ms  | **295.4 ms**        |
 | ClickHouse (via Materialize) | 282.8 ms      | —              | 11.5 ms  | **294.3 ms**        |
+| Materialize                  | 271.2 ms      | —              | 24.2 ms  | **295.4 ms**        |
 | ClickHouse (standalone)      | 1.32 s        | —              | 10.6 ms  | **1.33 s**          |
 
 
 **Customer orders + lifetime metrics**
 
 ```
-  Postgres                      ██████████████████████████████████████████
-  Materialize                   ░░░░░░░░░░░░░░░░░░░░░░░░░░██████
-  ClickHouse (via Materialize)  ░░░░░░░░████████████████████████████████
-  ClickHouse (standalone)       ░░░░░░░░░░░░░░░░░░░░░░░░░░▒▒▒▒▒▒▒▒▒▒██████
-                                |           |           |           |
-                                1ms         10ms        100ms       1s
+  Materialize                   ░░░░░█                                          (340.0 ms)
+  ClickHouse (via Materialize)  ░░░░░████████████████████                       (1.33 s)
+  Postgres                      █████████████████████████████████████           (2.03 s)
+  ClickHouse (standalone)       ░░░░░░░░░░░░░░░░░░░░░░░░▒▒▒▒▒▒▒▒▒██████         (2.12 s)
+                                |        |        |         |        |        |
+                                0      500ms     1s       1.5s      2s      2.5s
 ```
 
 
 | System                       | Freshness lag | Avg batch wait | Response | Total reaction time |
 | ---------------------------- | ------------- | -------------- | -------- | ------------------- |
-| Postgres                     | 0 ms          | —              | 2.03 s   | **2.03 s**          |
 | Materialize                  | 271.2 ms      | —              | 68.8 ms  | **340.0 ms**        |
 | ClickHouse (via Materialize) | 282.8 ms      | —              | 1.05 s   | **1.33 s**          |
+| Postgres                     | 0 ms          | —              | 2.03 s   | **2.03 s**          |
 | ClickHouse (standalone)      | 1.32 s        | 500 ms         | 301.5 ms | **2.12 s**          |
 
 
 **Product performance (by SKU)**
 
 ```
-  Postgres                      ██████████████████████████████████████████████
-  Materialize                   ░░░░░░░░░░░░░░░░░░░░░░░░░░░░░██
-  ClickHouse (via Materialize)  ░░░░░██████████████████████████████████████
-  ClickHouse (standalone)       ░░░░░░░░░░░░░░░░▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒
-                                |           |           |           |
-                                1ms         10ms        100ms       1s
+  Materialize                   ░░░                                             (285.6 ms)
+  ClickHouse (via Materialize)  ░░░███████████████████                          (2.35 s)
+  ClickHouse (standalone)       ░░░░░░░░░░░░▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒             (3.84 s)
+  Postgres                      ███████████████████████████████████████         (4.24 s)
+                                |        |        |         |        |        |
+                                0       1s       2s        3s       4s       5s
 ```
 
 
 | System                       | Freshness lag | Avg batch wait | Response | Total reaction time |
 | ---------------------------- | ------------- | -------------- | -------- | ------------------- |
-| Postgres                     | 0 ms          | —              | 4.24 s   | **4.24 s**          |
 | Materialize                  | 271.2 ms      | —              | 14.4 ms  | **285.6 ms**        |
 | ClickHouse (via Materialize) | 282.8 ms      | —              | 2.07 s   | **2.35 s**          |
 | ClickHouse (standalone)      | 1.32 s        | 2.50 s         | 13.7 ms  | **3.84 s**          |
+| Postgres                     | 0 ms          | —              | 4.24 s   | **4.24 s**          |
 
 
 **Why Postgres is slow:** the customer orders query must rank one customer by lifetime spend among all 100K customers. That requires aggregating all 2.8M order items at query time regardless of how many orders that customer has — there is no index that avoids the full scan. Product performance has the same structural problem: ranking one SKU by revenue requires reading every order item. These are not indexing failures; they are structurally unavoidable in a system that computes on read.
@@ -383,60 +383,60 @@ Response time alone does not determine which system delivers results soonest aft
 **Revenue histogram ($50 buckets, 90 d)**
 
 ```
-  Postgres                      █████████████████████████████
-  Materialize                   ░░░████████████████████████████████████
-  ClickHouse (via Materialize)  ░░░░░░░░░░░░░░░░░░░░░░░░░██
-  ClickHouse (standalone)       ░░░░▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒
-                                |          |          |          |          |
-                                1ms        10ms       100ms      1s         10s
+  ClickHouse (via Materialize)  ░                                               (300.3 ms)
+  Postgres                      █                                               (489.3 ms)
+  Materialize                   ░███████                                        (3.46 s)
+  ClickHouse (standalone)       ░░░▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒          (16.35 s)
+                                |        |        |         |        |        |
+                                0       4s       8s        12s      16s      20s
 ```
 
 
 | System                       | Freshness lag | Avg batch wait | Response | Total reaction time |
 | ---------------------------- | ------------- | -------------- | -------- | ------------------- |
+| ClickHouse (via Materialize) | 282.8 ms      | —              | 17.5 ms  | **300.3 ms**        |
 | Postgres                     | 0 ms          | —              | 489.3 ms | **489.3 ms**        |
 | Materialize                  | 271.2 ms      | —              | 3.19 s   | **3.46 s**          |
-| ClickHouse (via Materialize) | 282.8 ms      | —              | 17.5 ms  | **300.3 ms**        |
 | ClickHouse (standalone)      | 1.32 s        | 15.00 s        | 27.7 ms  | **16.35 s**         |
 
 
 **Revenue by category × tier × day-of-week**
 
 ```
-  Postgres                      ██████████████████████████████████████
-  Materialize                   ░░██████████████████████████████████████
-  ClickHouse (via Materialize)  ░░░░░░░░░░░░░░░░░░░░░░░░░██
-  ClickHouse (standalone)       ░░░░▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒
-                                |          |          |          |          |
-                                1ms        10ms       100ms      1s         10s
+  ClickHouse (via Materialize)  ░                                               (310.0 ms)
+  Postgres                      ████████                                        (3.32 s)
+  Materialize                   ░█████████                                      (4.53 s)
+  ClickHouse (standalone)       ░░░▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒          (16.33 s)
+                                |        |        |         |        |        |
+                                0       4s       8s        12s      16s      20s
 ```
 
 
 | System                       | Freshness lag | Avg batch wait | Response | Total reaction time |
 | ---------------------------- | ------------- | -------------- | -------- | ------------------- |
+| ClickHouse (via Materialize) | 282.8 ms      | —              | 27.2 ms  | **310.0 ms**        |
 | Postgres                     | 0 ms          | —              | 3.32 s   | **3.32 s**          |
 | Materialize                  | 271.2 ms      | —              | 4.26 s   | **4.53 s**          |
-| ClickHouse (via Materialize) | 282.8 ms      | —              | 27.2 ms  | **310.0 ms**        |
 | ClickHouse (standalone)      | 1.32 s        | 15.00 s        | 7.3 ms   | **16.33 s**         |
 
 
 **Cohort retention (30/60/90 d)**
 
 ```
-  Postgres                      █████████████████████████████████
-  Materialize                   ░░███████████████████████████████████████
-  ClickHouse (via Materialize)  ░░░░░░░░░░░░░░████████████████
-  ClickHouse (standalone)       ░░░░▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒
-                                |          |          |          |          |
-                                1ms        10ms       100ms      1s         10s
+  ClickHouse (via Materialize)  █                                               (615.6 ms)
+  Postgres                      ███                                             (1.10 s)
+  Materialize                   ░████████████                                   (5.78 s)
+  ClickHouse (standalone)       ░░░▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒          (16.44 s)
+                                |        |        |         |        |        |
+                                0       4s       8s        12s      16s      20s
 ```
 
 
 | System                       | Freshness lag | Avg batch wait | Response | Total reaction time |
 | ---------------------------- | ------------- | -------------- | -------- | ------------------- |
+| ClickHouse (via Materialize) | 282.8 ms      | —              | 332.8 ms | **615.6 ms**        |
 | Postgres                     | 0 ms          | —              | 1.10 s   | **1.10 s**          |
 | Materialize                  | 271.2 ms      | —              | 5.51 s   | **5.78 s**          |
-| ClickHouse (via Materialize) | 282.8 ms      | —              | 332.8 ms | **615.6 ms**        |
 | ClickHouse (standalone)      | 1.32 s        | 15.00 s        | 114.3 ms | **16.44 s**         |
 
 
