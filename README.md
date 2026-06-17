@@ -10,16 +10,16 @@ The result: lower end-to-end reaction time than single-system HTAP — because w
 
 ```
   14:32:33.012  Postgres     price: $299.99 → $359.99
-  14:32:33.283  Materialize  reflected (+271 ms)
-  14:32:33.295  ClickHouse   reflected (+283 ms)
+  14:32:33.197  Materialize  reflected (+185 ms)
+  14:32:33.712  ClickHouse   reflected (+700 ms)
 ```
 
 ```
-Write → [~271 ms] → Materialize (<10 ms reads)
-      → [~283 ms] → ClickHouse (<100 ms scans)
+Write → [~185 ms] → Materialize (<10 ms reads)
+      → [~700 ms] → ClickHouse (<100 ms scans)
 ```
 
-A write lands in Postgres. Materialize reflects it in ~271 ms as a fully joined, indexed result; ClickHouse receives it ~283 ms later as a scan-optimized table.
+A write lands in Postgres. Materialize reflects it in ~185 ms as a fully joined, indexed result; ClickHouse receives it ~700 ms after the write as a scan-optimized table — the Kafka-sink path is slower because Materialize materializes the join upstream before the row lands.
 
 ```
 Postgres   ──┐
@@ -45,7 +45,7 @@ These benchmarks measure **response time** — how quickly each system returns a
 
 ### Reaction time = freshness lag + response time
 
-Freshness values are from a local 10-run benchmark (Materialize ~271 ms via CDC, ClickHouse via MZ ~283 ms via Kafka sink, ClickHouse standalone ~1.32 s via Debezium). Run `make bench` to see values from your environment.
+Freshness values are medians from a local benchmark (Materialize ~185 ms via CDC, ClickHouse standalone ~505 ms via Debezium, ClickHouse via Materialize ~700 ms via the Kafka sink). All three are measured against the same logical event. The sink path is the slowest because Materialize materializes the join upstream before the row lands in ClickHouse; standalone lands a raw row sooner but defers the join to query time. Run `make bench` to see values from your environment.
 
 ```
 ░░░ freshness lag (time until data reflects the latest write)
@@ -53,18 +53,18 @@ Freshness values are from a local 10-run benchmark (Materialize ~271 ms via CDC,
 ███ query response time
 
 Operational — Customer orders + spend rank
-  Materialize                   ░░░░░█                                          (340.0 ms)
-  ClickHouse (via Materialize)  ░░░░░████████████████████                       (1.33 s)
+  Materialize                   ░░░░█                                           (253.1 ms)
+  ClickHouse (standalone)       ░░░░░░░░░▒▒▒▒▒▒▒▒▒██████                        (1.31 s)
+  ClickHouse (via Materialize)  ░░░░░░░░░░░░░███████████████████                (1.75 s)
   Postgres                      █████████████████████████████████████           (2.03 s)
-  ClickHouse (standalone)       ░░░░░░░░░░░░░░░░░░░░░░░░▒▒▒▒▒▒▒▒▒██████         (2.12 s)
                                 |        |        |         |        |        |
                                 0      500ms     1s       1.5s      2s      2.5s
 
 Analytical — Revenue histogram ($50 buckets, 90 d)
-  ClickHouse (via Materialize)  ░                                               (300.3 ms)
   Postgres                      █                                               (489.3 ms)
-  Materialize                   ░███████                                        (3.46 s)
-  ClickHouse (standalone)       ░░░▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒          (16.35 s)
+  ClickHouse (via Materialize)  ░░                                              (718.6 ms)
+  Materialize                   ████████                                        (3.37 s)
+  ClickHouse (standalone)       ░▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒            (15.53 s)
                                 |        |        |         |        |        |
                                 0       4s       8s        12s      16s      20s
 ```
@@ -74,10 +74,10 @@ Analytical — Revenue histogram ($50 buckets, 90 d)
 
 | System                       | Freshness lag | Avg batch wait | Response | Total reaction time |
 | ---------------------------- | ------------- | -------------- | -------- | ------------------- |
-| Materialize                  | 271.2 ms      | —              | 68.8 ms  | **340.0 ms**        |
-| ClickHouse (via Materialize) | 282.8 ms      | —              | 1.05 s   | **1.33 s**          |
+| Materialize                  | 184.3 ms      | —              | 68.8 ms  | **253.1 ms**        |
+| ClickHouse (standalone)      | 506.2 ms      | 500 ms         | 301.5 ms | **1.31 s**          |
+| ClickHouse (via Materialize) | 701.1 ms      | —              | 1.05 s   | **1.75 s**          |
 | Postgres                     | 0 ms          | —              | 2.03 s   | **2.03 s**          |
-| ClickHouse (standalone)      | 1.32 s        | 500 ms         | 301.5 ms | **2.12 s**          |
 
 
 **Analytical — Revenue histogram ($50 buckets, 90 d)**
@@ -85,18 +85,18 @@ Analytical — Revenue histogram ($50 buckets, 90 d)
 
 | System                       | Freshness lag | Avg batch wait | Response | Total reaction time |
 | ---------------------------- | ------------- | -------------- | -------- | ------------------- |
-| ClickHouse (via Materialize) | 282.8 ms      | —              | 17.5 ms  | **300.3 ms**        |
 | Postgres                     | 0 ms          | —              | 489.3 ms | **489.3 ms**        |
-| Materialize                  | 271.2 ms      | —              | 3.19 s   | **3.46 s**          |
-| ClickHouse (standalone)      | 1.32 s        | 15 s           | 27.7 ms  | **16.35 s**         |
+| ClickHouse (via Materialize) | 701.1 ms      | —              | 17.5 ms  | **718.6 ms**        |
+| Materialize                  | 184.3 ms      | —              | 3.19 s   | **3.37 s**          |
+| ClickHouse (standalone)      | 506.2 ms      | 15 s           | 27.7 ms  | **15.53 s**         |
 
 
 Each system reflects a deliberate design tradeoff:
 
 - **Postgres** has zero freshness lag (reads from the same store as writes) but response time grows with dataset size for aggregation-heavy queries
-- **Materialize** absorbs a ~271 ms CDC propagation delay but response time stays flat regardless of dataset size because results are maintained incrementally — making total reaction time faster than Postgres for operational queries
-- **ClickHouse (via Materialize)** now carries ~283 ms freshness lag (nearly matching Materialize's ~271 ms) with fast columnar response for full-table scans — the right routing choice for ad-hoc analytical shapes where the query cannot be pre-indexed
-- **ClickHouse (standalone)** is the best-effort standalone: Debezium CDC (~1.3 s) plus a per-query batch scheduling wait (`▒▒▒`) — `refresh_interval ÷ 2` on average — before results reflect the latest write. For analytical queries with 30 s refresh MVs this adds ~15 s of batch wait on top of CDC lag. For operational queries the ClickHouse-native techniques (projections, ORDER BY layouts, AggregatingMergeTree, HASHED dictionaries) narrow the response-time gap with Materialize but can't close it — `FINAL` deduplication runs before predicates, so even a `WHERE customer_id = ?` point lookup deduplicates the full table first. Materialize pays that cost once at write time; ClickHouse pays it per query at read time
+- **Materialize** absorbs a ~185 ms CDC propagation delay but response time stays flat regardless of dataset size because results are maintained incrementally — making total reaction time faster than Postgres for operational queries
+- **ClickHouse (via Materialize)** carries ~700 ms freshness lag — the highest of the CDC paths, because the Kafka-sink path materializes the join upstream before the row lands — paired with fast columnar response for full-table scans. The right routing choice for ad-hoc analytical shapes where the query cannot be pre-indexed and ~700 ms staleness is acceptable
+- **ClickHouse (standalone)** is the best-effort standalone: Debezium CDC (~505 ms — a raw row lands sooner than the via-Materialize joined row) plus a per-query batch scheduling wait (`▒▒▒`) — `refresh_interval ÷ 2` on average — before results reflect the latest write. For analytical queries with 30 s refresh MVs this adds ~15 s of batch wait on top of CDC lag. For operational queries the ClickHouse-native techniques (projections, ORDER BY layouts, AggregatingMergeTree, HASHED dictionaries) narrow the response-time gap with Materialize but can't close it — `FINAL` deduplication runs before predicates, so even a `WHERE customer_id = ?` point lookup deduplicates the full table first. Materialize pays that cost once at write time; ClickHouse pays it per query at read time
 
 ```bash
 make load   # seed 1M orders
@@ -139,7 +139,7 @@ Dashboards and UIs that surface per-entity operational state alongside populatio
 
 ### When Postgres + Debezium + ClickHouse is the right choice instead
 
-If the requirement is purely analytical — ad-hoc aggregations over the full dataset, no per-entity operational serving, no event-driven downstream consumers — then Debezium pushing CDC directly into ClickHouse delivers sub-100ms query times with ~2.4 s freshness and three fewer moving parts. ClickHouse's own pre-aggregation facilities (refreshable materialized views, dictionaries, AggregatingMergeTree) handle most OLAP workloads without a second database in the loop. This benchmark includes that path as "ClickHouse (standalone)" — the numbers show where each architecture fits.
+If the requirement is purely analytical — ad-hoc aggregations over the full dataset, no per-entity operational serving, no event-driven downstream consumers — then Debezium pushing CDC directly into ClickHouse delivers sub-100ms query times with ~505 ms freshness and three fewer moving parts. ClickHouse's own pre-aggregation facilities (refreshable materialized views, dictionaries, AggregatingMergeTree) handle most OLAP workloads without a second database in the loop. This benchmark includes that path as "ClickHouse (standalone)" — the numbers show where each architecture fits.
 
 ### What to watch for at scale
 
@@ -291,30 +291,30 @@ Known access patterns benchmarked across four systems. ClickHouse (via Materiali
 **Inventory lookup (by SKU)**
 
 ```
-  Postgres                      █████                                           (224.4 ms)
-  ClickHouse (via Materialize)  ░░░░░░░                                         (294.3 ms)
-  Materialize                   ░░░░░░█                                         (295.4 ms)
-  ClickHouse (standalone)       ░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░                 (1.33 s)
+  Materialize                   ░░░░░░░░░█                                      (208.5 ms)
+  Postgres                      ██████████                                      (224.4 ms)
+  ClickHouse (standalone)       ░░░░░░░░░░░░░░░░░░░░░░░░                        (516.8 ms)
+  ClickHouse (via Materialize)  ░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░█               (712.6 ms)
                                 |        |        |         |        |        |
-                                0      400ms    800ms     1.2s     1.6s      2s
+                                0      200ms    400ms     600ms    800ms     1s
 ```
 
 
 | System                       | Freshness lag | Avg batch wait | Response | Total reaction time |
 | ---------------------------- | ------------- | -------------- | -------- | ------------------- |
+| Materialize                  | 184.3 ms      | —              | 24.2 ms  | **208.5 ms**        |
 | Postgres                     | 0 ms          | —              | 224.4 ms | **224.4 ms**        |
-| ClickHouse (via Materialize) | 282.8 ms      | —              | 11.5 ms  | **294.3 ms**        |
-| Materialize                  | 271.2 ms      | —              | 24.2 ms  | **295.4 ms**        |
-| ClickHouse (standalone)      | 1.32 s        | —              | 10.6 ms  | **1.33 s**          |
+| ClickHouse (standalone)      | 506.2 ms      | —              | 10.6 ms  | **516.8 ms**        |
+| ClickHouse (via Materialize) | 701.1 ms      | —              | 11.5 ms  | **712.6 ms**        |
 
 
 **Customer orders + lifetime metrics**
 
 ```
-  Materialize                   ░░░░░█                                          (340.0 ms)
-  ClickHouse (via Materialize)  ░░░░░████████████████████                       (1.33 s)
+  Materialize                   ░░░░█                                           (253.1 ms)
+  ClickHouse (standalone)       ░░░░░░░░░▒▒▒▒▒▒▒▒▒██████                        (1.31 s)
+  ClickHouse (via Materialize)  ░░░░░░░░░░░░░███████████████████                (1.75 s)
   Postgres                      █████████████████████████████████████           (2.03 s)
-  ClickHouse (standalone)       ░░░░░░░░░░░░░░░░░░░░░░░░▒▒▒▒▒▒▒▒▒██████         (2.12 s)
                                 |        |        |         |        |        |
                                 0      500ms     1s       1.5s      2s      2.5s
 ```
@@ -322,18 +322,18 @@ Known access patterns benchmarked across four systems. ClickHouse (via Materiali
 
 | System                       | Freshness lag | Avg batch wait | Response | Total reaction time |
 | ---------------------------- | ------------- | -------------- | -------- | ------------------- |
-| Materialize                  | 271.2 ms      | —              | 68.8 ms  | **340.0 ms**        |
-| ClickHouse (via Materialize) | 282.8 ms      | —              | 1.05 s   | **1.33 s**          |
+| Materialize                  | 184.3 ms      | —              | 68.8 ms  | **253.1 ms**        |
+| ClickHouse (standalone)      | 506.2 ms      | 500 ms         | 301.5 ms | **1.31 s**          |
+| ClickHouse (via Materialize) | 701.1 ms      | —              | 1.05 s   | **1.75 s**          |
 | Postgres                     | 0 ms          | —              | 2.03 s   | **2.03 s**          |
-| ClickHouse (standalone)      | 1.32 s        | 500 ms         | 301.5 ms | **2.12 s**          |
 
 
 **Product performance (by SKU)**
 
 ```
-  Materialize                   ░░░                                             (285.6 ms)
-  ClickHouse (via Materialize)  ░░░███████████████████                          (2.35 s)
-  ClickHouse (standalone)       ░░░░░░░░░░░░▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒             (3.84 s)
+  Materialize                   ░░                                              (198.7 ms)
+  ClickHouse (via Materialize)  ░░░░░░███████████████████                       (2.77 s)
+  ClickHouse (standalone)       ░░░░░▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒                    (3.02 s)
   Postgres                      ███████████████████████████████████████         (4.24 s)
                                 |        |        |         |        |        |
                                 0       1s       2s        3s       4s       5s
@@ -342,9 +342,9 @@ Known access patterns benchmarked across four systems. ClickHouse (via Materiali
 
 | System                       | Freshness lag | Avg batch wait | Response | Total reaction time |
 | ---------------------------- | ------------- | -------------- | -------- | ------------------- |
-| Materialize                  | 271.2 ms      | —              | 14.4 ms  | **285.6 ms**        |
-| ClickHouse (via Materialize) | 282.8 ms      | —              | 2.07 s   | **2.35 s**          |
-| ClickHouse (standalone)      | 1.32 s        | 2.50 s         | 13.7 ms  | **3.84 s**          |
+| Materialize                  | 184.3 ms      | —              | 14.4 ms  | **198.7 ms**        |
+| ClickHouse (via Materialize) | 701.1 ms      | —              | 2.07 s   | **2.77 s**          |
+| ClickHouse (standalone)      | 506.2 ms      | 2.5 s          | 13.7 ms  | **3.02 s**          |
 | Postgres                     | 0 ms          | —              | 4.24 s   | **4.24 s**          |
 
 
@@ -354,9 +354,9 @@ Known access patterns benchmarked across four systems. ClickHouse (via Materiali
 
 **What ClickHouse standalone achieves:** this is the best possible version of ClickHouse for this workload — ORDER BY (customer_id, id) for orders, order_lookup projection for order_items, AggregatingMergeTree for incremental spend, refreshable MVs for pre-computed RANK() and product stats, HASHED dictionaries for O(1) dimension lookups. The gap narrows dramatically: inventory at 10.6 ms and product performance at 13.7 ms both come within striking distance. But for customer orders, even with the order_lookup projection and pre-computed rankings, 301.5 ms vs Materialize's 68.8 ms reflects a structural difference in where deduplication happens. `FINAL` runs before predicates: ClickHouse must deduplicate the full `opt_orders` table and the full `opt_order_items` table to determine which version of each row survives, then filter to the target customer. The join spans four tables — each fully deduplicated before the join executes. Materialize eliminates this cost entirely: the index holds already-deduplicated current state, so the query hits a pre-built result and returns immediately. Even the best possible ClickHouse configuration cannot eliminate read-time recomputation — it can only reduce it.
 
-**Why operational queries are served by Materialize:** With CDC freshness of ~271 ms, Materialize's total reaction time for operational queries is under 350 ms. ClickHouse (via Materialize) now carries ~283 ms freshness lag — nearly matching Materialize — while ClickHouse standalone carries ~1.32 s via Debezium.
+**Why operational queries are served by Materialize:** With CDC freshness of ~185 ms, Materialize's total reaction time for operational queries is ~200–250 ms — the freshest path and the fastest response. Both ClickHouse paths trail it: standalone lands a raw row in ~505 ms, while via-Materialize carries ~700 ms because the Kafka-sink path materializes the join upstream before the row lands.
 
-**Result:** Materialize delivers sub-350 ms total reaction time for operational queries. ClickHouse (via Materialize) also reaches sub-300 ms for simple lookups at ~283 ms freshness. ClickHouse standalone exceeds 1.3 s before a query executes.
+**Result:** Materialize delivers ~200–250 ms total reaction time for operational queries — fresher and faster than either ClickHouse path. For a simple inventory lookup, ClickHouse standalone reaches ~515 ms total and via-Materialize ~710 ms; the via-Materialize freshness lag is the cost of enriching the row upstream rather than at query time.
 
 ### Analytical Queries
 
@@ -366,7 +366,7 @@ Two patterns serve these categories. For fixed query shapes, Materialize pre-agg
 
 ClickHouse (via Materialize) uses pre-aggregated sinks for the cross-dimensional and histogram queries; it falls back to the full flat table for cohort retention (ad-hoc shape). ClickHouse (standalone) uses Debezium-fed pre-aggregated tables refreshed every 30 seconds.
 
-Response time alone does not determine which system delivers results soonest after a write. ClickHouse standalone carries a ~1.32 s freshness lag; ClickHouse via Materialize carries ~283 ms; Materialize reflects writes in ~271 ms. **Reaction time — freshness lag + response — is the decisive comparison for data-currency-sensitive applications.** The chart below integrates both.
+Response time alone does not determine which system delivers results soonest after a write. ClickHouse standalone carries a ~505 ms freshness lag; ClickHouse via Materialize carries ~700 ms; Materialize reflects writes in ~185 ms. **Reaction time — freshness lag + response — is the decisive comparison for data-currency-sensitive applications.** The chart below integrates both.
 
 
 | Query                                    | Postgres | Materialize | ClickHouse (via Materialize) | ClickHouse (standalone) |
@@ -378,15 +378,15 @@ Response time alone does not determine which system delivers results soonest aft
 
 *Columns show response time only. See the reaction-time chart for total latency including freshness lag.*
 
-> **A note on the ClickHouse standalone refresh interval.** The pre-aggregated MVs here use a 30 s refresh interval — conservative but typical per [ClickHouse guidance](https://github.com/ClickHouse/clickhouse-docs/blob/main/docs/best-practices/use_materialized_views.md) (interval should exceed query time; for 5–15 ms queries, anywhere from 1 s to several minutes is defensible). CH standalone carries a ~1.32 s CDC floor; CH via Materialize carries ~283 ms. Any non-zero refresh interval adds `interval / 2` average batch wait on top of CDC lag — so CH standalone's total reaction time always exceeds CH via Materialize's by approximately `refresh_interval / 2` plus the CDC gap. The right value depends on your re-aggregation cost and freshness SLA; tighter intervals close the gap.
+> **A note on the ClickHouse standalone refresh interval.** The pre-aggregated MVs here use a 30 s refresh interval — conservative but typical per [ClickHouse guidance](https://github.com/ClickHouse/clickhouse-docs/blob/main/docs/best-practices/use_materialized_views.md) (interval should exceed query time; for 5–15 ms queries, anywhere from 1 s to several minutes is defensible). CH standalone carries a ~505 ms CDC floor; CH via Materialize carries ~700 ms. Any non-zero refresh interval adds `interval / 2` average batch wait on top of CDC lag — so for these pre-aggregated analytical queries CH standalone's total reaction time still exceeds CH via Materialize's, because the `refresh_interval / 2` batch wait dwarfs the ~195 ms CDC gap between the two paths. The right value depends on your re-aggregation cost and freshness SLA; tighter intervals close the gap.
 
 **Revenue histogram ($50 buckets, 90 d)**
 
 ```
-  ClickHouse (via Materialize)  ░                                               (300.3 ms)
   Postgres                      █                                               (489.3 ms)
-  Materialize                   ░███████                                        (3.46 s)
-  ClickHouse (standalone)       ░░░▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒          (16.35 s)
+  ClickHouse (via Materialize)  ░░                                              (718.6 ms)
+  Materialize                   ████████                                        (3.37 s)
+  ClickHouse (standalone)       ░▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒            (15.53 s)
                                 |        |        |         |        |        |
                                 0       4s       8s        12s      16s      20s
 ```
@@ -394,19 +394,19 @@ Response time alone does not determine which system delivers results soonest aft
 
 | System                       | Freshness lag | Avg batch wait | Response | Total reaction time |
 | ---------------------------- | ------------- | -------------- | -------- | ------------------- |
-| ClickHouse (via Materialize) | 282.8 ms      | —              | 17.5 ms  | **300.3 ms**        |
 | Postgres                     | 0 ms          | —              | 489.3 ms | **489.3 ms**        |
-| Materialize                  | 271.2 ms      | —              | 3.19 s   | **3.46 s**          |
-| ClickHouse (standalone)      | 1.32 s        | 15.00 s        | 27.7 ms  | **16.35 s**         |
+| ClickHouse (via Materialize) | 701.1 ms      | —              | 17.5 ms  | **718.6 ms**        |
+| Materialize                  | 184.3 ms      | —              | 3.19 s   | **3.37 s**          |
+| ClickHouse (standalone)      | 506.2 ms      | 15 s           | 27.7 ms  | **15.53 s**         |
 
 
 **Revenue by category × tier × day-of-week**
 
 ```
-  ClickHouse (via Materialize)  ░                                               (310.0 ms)
+  ClickHouse (via Materialize)  ░░                                              (728.3 ms)
   Postgres                      ████████                                        (3.32 s)
-  Materialize                   ░█████████                                      (4.53 s)
-  ClickHouse (standalone)       ░░░▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒          (16.33 s)
+  Materialize                   ██████████                                      (4.44 s)
+  ClickHouse (standalone)       ░▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒            (15.51 s)
                                 |        |        |         |        |        |
                                 0       4s       8s        12s      16s      20s
 ```
@@ -414,19 +414,19 @@ Response time alone does not determine which system delivers results soonest aft
 
 | System                       | Freshness lag | Avg batch wait | Response | Total reaction time |
 | ---------------------------- | ------------- | -------------- | -------- | ------------------- |
-| ClickHouse (via Materialize) | 282.8 ms      | —              | 27.2 ms  | **310.0 ms**        |
+| ClickHouse (via Materialize) | 701.1 ms      | —              | 27.2 ms  | **728.3 ms**        |
 | Postgres                     | 0 ms          | —              | 3.32 s   | **3.32 s**          |
-| Materialize                  | 271.2 ms      | —              | 4.26 s   | **4.53 s**          |
-| ClickHouse (standalone)      | 1.32 s        | 15.00 s        | 7.3 ms   | **16.33 s**         |
+| Materialize                  | 184.3 ms      | —              | 4.26 s   | **4.44 s**          |
+| ClickHouse (standalone)      | 506.2 ms      | 15 s           | 7.3 ms   | **15.51 s**         |
 
 
 **Cohort retention (30/60/90 d)**
 
 ```
-  ClickHouse (via Materialize)  █                                               (615.6 ms)
+  ClickHouse (via Materialize)  ░█                                              (1.03 s)
   Postgres                      ███                                             (1.10 s)
-  Materialize                   ░████████████                                   (5.78 s)
-  ClickHouse (standalone)       ░░░▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒          (16.44 s)
+  Materialize                   █████████████                                   (5.69 s)
+  ClickHouse (standalone)       ░▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒            (15.62 s)
                                 |        |        |         |        |        |
                                 0       4s       8s        12s      16s      20s
 ```
@@ -434,17 +434,17 @@ Response time alone does not determine which system delivers results soonest aft
 
 | System                       | Freshness lag | Avg batch wait | Response | Total reaction time |
 | ---------------------------- | ------------- | -------------- | -------- | ------------------- |
-| ClickHouse (via Materialize) | 282.8 ms      | —              | 332.8 ms | **615.6 ms**        |
+| ClickHouse (via Materialize) | 701.1 ms      | —              | 332.8 ms | **1.03 s**          |
 | Postgres                     | 0 ms          | —              | 1.10 s   | **1.10 s**          |
-| Materialize                  | 271.2 ms      | —              | 5.51 s   | **5.78 s**          |
-| ClickHouse (standalone)      | 1.32 s        | 15.00 s        | 114.3 ms | **16.44 s**         |
+| Materialize                  | 184.3 ms      | —              | 5.51 s   | **5.69 s**          |
+| ClickHouse (standalone)      | 506.2 ms      | 15 s           | 114.3 ms | **15.62 s**         |
 
 
 **Two sink patterns, two tradeoffs — measured by reaction time:**
 
-*Pre-aggregated sinks* (revenue histogram, cross-dimensional): Materialize IVM maintains the aggregation continuously — ~50 rows for the histogram, ~203 rows for category × tier × day-of-week. ClickHouse reads the pre-bucketed result in 17–27 ms, and the ~283 ms sink pipeline yields ~300–310 ms total reaction time, versus Materialize's own scan path at 3.5–4.5 s total. The ClickHouse sink path fits when analytical load should be isolated from the Materialize serving cluster; route directly to Materialize when minimizing time from write to result is the priority.
+*Pre-aggregated sinks* (revenue histogram, cross-dimensional): Materialize IVM maintains the aggregation continuously — ~50 rows for the histogram, ~203 rows for category × tier × day-of-week. ClickHouse reads the pre-bucketed result in 17–27 ms, and the ~700 ms sink pipeline yields ~720–730 ms total reaction time, versus Materialize's own scan path at 3.4–4.4 s total. The ClickHouse sink path fits when analytical load should be isolated from the Materialize serving cluster; route directly to Materialize when minimizing time from write to result is the priority.
 
-*Ad-hoc sinks* (cohort retention): Materialize sinks `orders_summary` as a 1M-row pre-joined flat table. ClickHouse standalone achieves the shortest response time (114.3 ms vs 332.8 ms via flat-table scan), but its 15 s batch window produces 16.44 s total reaction time. ClickHouse via Materialize reaches 615.6 ms total — substantially fresher. Choose ClickHouse for cohort queries when query shapes are unpredictable and ~615 ms staleness is acceptable; design a pre-aggregated Materialize MV when the cohort definition is fixed and freshness matters.
+*Ad-hoc sinks* (cohort retention): Materialize sinks `orders_summary` as a 1M-row pre-joined flat table. ClickHouse standalone achieves the shortest response time (114.3 ms vs 332.8 ms via flat-table scan), but its 15 s batch window produces 15.62 s total reaction time. ClickHouse via Materialize reaches 1.03 s total — substantially fresher. Choose ClickHouse for cohort queries when query shapes are unpredictable and ~1.0 s staleness is acceptable; design a pre-aggregated Materialize MV when the cohort definition is fixed and freshness matters.
 
 **Designing sinks for query families.** Each Materialize sink is maintained incrementally from the same CDC stream — the cost is paid once at write time, not per query per reader. The other side of that tradeoff: each pre-aggregated sink is a dataflow Materialize runs continuously, consuming hardware resources (CPU, memory, and disk) whether anyone reads from it or not. For the low-cardinality results here (~50 and ~203 rows) the footprint is negligible; for higher-cardinality groupings (say, per-customer-per-day) it becomes a real sizing consideration.
 
@@ -458,9 +458,9 @@ Response time alone does not determine which system delivers results soonest aft
 | Customer rank                             | via `customer_order_activity` index             | flat                           | `customer_rank` — pre-ranked (1 s)         |
 
 
-**Why ad-hoc analytical queries are routed to ClickHouse:** without a purpose-built index or pre-aggregated MV for a specific aggregation shape, Materialize falls back to a full scan of its row-oriented store (memory and local disk) — a workload its row-oriented engine isn't built for. For fixed shapes, the pre-aggregated sinks show the fit: the ClickHouse sink path returns the histogram in 300 ms total versus Materialize's own scan path at 3.46 s. For truly ad-hoc or unpredictable shapes, route to ClickHouse and accept the ~283 ms sink delay as the cost of flexible aggregation.
+**Why ad-hoc analytical queries are routed to ClickHouse:** without a purpose-built index or pre-aggregated MV for a specific aggregation shape, Materialize falls back to a full scan of its row-oriented store (memory and local disk) — a workload its row-oriented engine isn't built for. For fixed shapes, the pre-aggregated sinks show the fit: the ClickHouse sink path returns the histogram in 719 ms total versus Materialize's own scan path at 3.37 s. For truly ad-hoc or unpredictable shapes, route to ClickHouse and accept the ~700 ms sink delay as the cost of flexible aggregation.
 
-**Result:** for fixed analytical shapes, ClickHouse via Materialize delivers ~300 ms total reaction time, versus 3.5–5.5 s on Materialize's scan path and 16+ s on ClickHouse standalone. For ad-hoc shapes, ClickHouse delivers the shortest response time — you pay the ~283 ms freshness lag as the cost of flexible aggregation.
+**Result:** for fixed analytical shapes, ClickHouse via Materialize delivers ~720 ms total reaction time, versus 3.4–5.7 s on Materialize's scan path and 15+ s on ClickHouse standalone. For ad-hoc shapes, ClickHouse delivers the shortest response time — you pay the ~700 ms freshness lag as the cost of flexible aggregation.
 
 ## Production Considerations
 

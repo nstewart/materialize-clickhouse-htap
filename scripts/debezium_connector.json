@@ -10,6 +10,7 @@
     "topic.prefix": "dbz",
     "table.include.list": "public.customers,public.products,public.orders,public.order_items,public.inventory",
     "plugin.name": "pgoutput",
+    "poll.interval.ms": "100",
     "slot.name": "debezium_retail",
     "publication.name": "dbz_publication",
     "publication.autocreate.mode": "all_tables",
