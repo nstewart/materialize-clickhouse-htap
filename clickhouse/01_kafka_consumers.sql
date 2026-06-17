@@ -71,7 +71,7 @@ SETTINGS
     kafka_group_name           = 'clickhouse-orders-consumer',
     kafka_format               = 'JSONEachRow',
     kafka_skip_broken_messages = 10,
-    kafka_poll_timeout_ms      = 100,
+    kafka_poll_timeout_ms      = 50,
     kafka_flush_interval_ms    = 50;
 
 -- -----------------------------------------------------------------------------
@@ -134,7 +134,7 @@ SETTINGS
     kafka_group_name           = 'clickhouse-orders-summary-consumer',
     kafka_format               = 'JSONEachRow',
     kafka_skip_broken_messages = 10,
-    kafka_poll_timeout_ms      = 100,
+    kafka_poll_timeout_ms      = 50,
     kafka_flush_interval_ms    = 50;
 
 -- -----------------------------------------------------------------------------
@@ -185,7 +185,7 @@ SETTINGS
     kafka_group_name           = 'clickhouse-inventory-consumer',
     kafka_format               = 'JSONEachRow',
     kafka_skip_broken_messages = 10,
-    kafka_poll_timeout_ms      = 100,
+    kafka_poll_timeout_ms      = 50,
     kafka_flush_interval_ms    = 50;
 
 -- -----------------------------------------------------------------------------

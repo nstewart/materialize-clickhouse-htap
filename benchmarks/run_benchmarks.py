@@ -246,7 +246,10 @@ def measure_freshness(pg_conn, mz_conn, ch_client, run_optimized: bool, console)
     Materialize, ClickHouse (via Materialize), and ClickHouse (standalone/Debezium).
 
     Returns (mz_ms, ch_via_mz_ms, cho_ms).
-    cho_ms is measured by watching opt_products for the canary product_id.
+    All three watch the same logical event (the canary inventory row): mz via a
+    SUBSCRIBE to inventory_position, ch_via_mz via inventory_snapshots, and
+    cho via opt_inventory (the Debezium-direct destination for the inventory
+    table) — so the three freshness numbers are a like-for-like comparison.
     """
     canary_sku = f"CANARY-{random.randint(100_000, 999_999)}"
     canary_pid: int | None = None
@@ -285,38 +288,52 @@ def measure_freshness(pg_conn, mz_conn, ch_client, run_optimized: bool, console)
         pg_fresh.commit()
         deadline = t0 + 30.0
 
-        mz_ms: float | None = None
-        while time.perf_counter() < deadline and mz_ms is None:
-            sub_cur.execute("FETCH ALL sub WITH (TIMEOUT = '250ms')")
-            for row in sub_cur.fetchall():
-                if row[1] > 0:
-                    mz_ms = (time.perf_counter() - t0) * 1000
-                    break
-
-        ch_ms: float | None = None
-        while time.perf_counter() < deadline and ch_ms is None:
-            r = ch_client.query(
-                "SELECT 1 FROM retail.inventory_snapshots "
-                "WHERE product_id = %(pid)s LIMIT 1",
-                parameters={"pid": canary_pid},
-            )
-            if r.result_rows:
-                ch_ms = (time.perf_counter() - t0) * 1000
-            elif time.perf_counter() < deadline:
-                time.sleep(0.25)
-
+        # Poll all three destinations concurrently from a single t0 and record
+        # each the moment its row appears. Checking them serially (finish one,
+        # then start the next) would pin the later paths to the slower earlier
+        # one — by the time a serial check began, the row would already be
+        # present, so every path would report the same time. Interleaving gives
+        # each path an independent, comparable freshness measurement.
+        #
+        # All three observe the SAME logical event — the canary inventory row.
+        # Materialize SUBSCRIBEs to inventory_position; the via-Materialize path
+        # reads inventory_snapshots (fed by that view's Kafka sink); the
+        # standalone path reads opt_inventory (the Debezium-direct destination
+        # for the inventory table). Measuring the standalone path on a different
+        # object (e.g. opt_products, a single-table no-join hop) would not be a
+        # like-for-like freshness comparison.
+        mz_ms:  float | None = None
+        ch_ms:  float | None = None
         cho_ms: float | None = None
-        if run_optimized:
-            while time.perf_counter() < deadline and cho_ms is None:
+        while time.perf_counter() < deadline and (
+            mz_ms is None or ch_ms is None or (run_optimized and cho_ms is None)
+        ):
+            if mz_ms is None:
+                sub_cur.execute("FETCH ALL sub WITH (TIMEOUT = '50ms')")
+                for row in sub_cur.fetchall():
+                    if row[1] > 0:
+                        mz_ms = (time.perf_counter() - t0) * 1000
+                        break
+
+            if ch_ms is None:
                 r = ch_client.query(
-                    "SELECT 1 FROM retail.opt_products "
-                    "WHERE id = %(pid)s LIMIT 1",
+                    "SELECT 1 FROM retail.inventory_snapshots "
+                    "WHERE product_id = %(pid)s LIMIT 1",
+                    parameters={"pid": canary_pid},
+                )
+                if r.result_rows:
+                    ch_ms = (time.perf_counter() - t0) * 1000
+
+            if run_optimized and cho_ms is None:
+                r = ch_client.query(
+                    "SELECT 1 FROM retail.opt_inventory "
+                    "WHERE product_id = %(pid)s LIMIT 1",
                     parameters={"pid": canary_pid},
                 )
                 if r.result_rows:
                     cho_ms = (time.perf_counter() - t0) * 1000
-                elif time.perf_counter() < deadline:
-                    time.sleep(0.25)
+
+            time.sleep(0.02)
 
     finally:
         if sub_conn is not None:
